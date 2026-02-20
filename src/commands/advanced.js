@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getFirestoreInstance } = require('../firebaseClient');
+const { getFirestoreInstance, firebaseInfo } = require('../firebaseClient');
+const { expectedWebsiteFirebaseProjectId } = require('../config');
 
 const uptimeCommand = new SlashCommandBuilder()
   .setName('uptime')
@@ -55,21 +56,44 @@ async function handleUptime(interaction) {
 async function handleStatus(interaction) {
   await interaction.deferReply();
 
+  const info = firebaseInfo();
   const statusChecks = {
     discord: '✅ Connected',
-    firebase: '❌ Not Connected',
-    website: '❌ Not Connected'
+    firebase: info.mode.startsWith('admin') ? '✅ Initialized' : `⚠️ ${info.mode}`,
+    project: info.projectId || 'N/A',
+    serviceAccount: info.clientEmail || 'N/A',
+    websiteMatch: 'Unknown',
+    collections: 'Not checked'
   };
 
-  // Check Firebase connection
+  if (expectedWebsiteFirebaseProjectId && info.projectId) {
+    statusChecks.websiteMatch =
+      expectedWebsiteFirebaseProjectId === info.projectId
+        ? '✅ Yes (matches expected website project)'
+        : `❌ No (expected ${expectedWebsiteFirebaseProjectId})`;
+  } else if (expectedWebsiteFirebaseProjectId) {
+    statusChecks.websiteMatch = `⚠️ Expected ${expectedWebsiteFirebaseProjectId} but bot has no projectId`;
+  } else {
+    statusChecks.websiteMatch = '⚠️ Not configured (set EXPECTED_WEBSITE_FIREBASE_PROJECT_ID to compare)';
+  }
+
+  // Check per-collection read access (diagnostic)
   try {
     const db = getFirestoreInstance();
-    const testSnapshot = await db.collection('teams').limit(1).get();
-    statusChecks.firebase = '✅ Connected';
-    statusChecks.website = '✅ Connected';
+    const collectionsToTest = ['teams', 'products', 'newsArticles', 'placements', 'ambassadors'];
+    const results = await Promise.all(
+      collectionsToTest.map(async c => {
+        try {
+          await db.collection(c).limit(1).get();
+          return `✅ ${c}`;
+        } catch (e) {
+          return `❌ ${c}`;
+        }
+      })
+    );
+    statusChecks.collections = results.join('\n');
   } catch (error) {
-    statusChecks.firebase = `❌ Error: ${error.message}`;
-    statusChecks.website = `❌ Error: ${error.message}`;
+    statusChecks.collections = `❌ Firebase error: ${error.message}`;
   }
 
   const embed = new EmbedBuilder()
@@ -77,10 +101,13 @@ async function handleStatus(interaction) {
     .setDescription('Real-time connection status to all services')
     .addFields(
       { name: 'Discord', value: statusChecks.discord, inline: true },
-      { name: 'Firebase', value: statusChecks.firebase, inline: true },
-      { name: 'Website Data', value: statusChecks.website, inline: true }
+      { name: 'Firebase Init', value: statusChecks.firebase, inline: true },
+      { name: 'Project ID', value: statusChecks.project, inline: true },
+      { name: 'Service Account', value: statusChecks.serviceAccount, inline: false },
+      { name: 'Is this the website DB?', value: statusChecks.websiteMatch, inline: false },
+      { name: 'Collection access', value: statusChecks.collections, inline: false }
     )
-    .setColor(statusChecks.firebase.includes('✅') ? 0x00ff00 : 0xff0000)
+    .setColor(statusChecks.collections.includes('✅') ? 0x00ff00 : 0xff0000)
     .setTimestamp()
     .setFooter({ text: 'Live status check' });
 

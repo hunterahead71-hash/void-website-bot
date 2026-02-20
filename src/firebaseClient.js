@@ -1,42 +1,100 @@
 const admin = require('firebase-admin');
 const { 
   firebaseProjectId, 
-  firebaseApiKey, 
-  firebaseAuthDomain,
-  firebaseServiceAccount 
+  firebaseServiceAccount
 } = require('./config');
 
 let adminDb = null;
+let firebaseInfo = {
+  mode: 'uninitialized',
+  projectId: firebaseProjectId || null,
+  clientEmail: null,
+  initError: null
+};
 
-// Initialize Firebase Admin (server-side, more reliable)
-if (firebaseServiceAccount) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert(firebaseServiceAccount),
-      projectId: firebaseProjectId
-    });
-    adminDb = admin.firestore();
-    console.log('✅ Firebase Admin initialized');
-  } catch (error) {
-    console.error('❌ Firebase Admin init error:', error.message);
+function hasServiceAccountFields(sa) {
+  return !!(sa && typeof sa === 'object' && sa.client_email && sa.private_key && sa.project_id);
+}
+
+function initFirestore() {
+  // IMPORTANT: Firebase Admin ONLY reads the Firebase project you configure.
+  // If you created your own Firebase, you will read YOUR data (not the website’s).
+
+  const sa = firebaseServiceAccount;
+
+  if (hasServiceAccountFields(sa)) {
+    const effectiveProjectId = sa.project_id;
+    try {
+      admin.initializeApp({
+        credential: admin.credential.cert(sa),
+        projectId: effectiveProjectId
+      });
+      adminDb = admin.firestore();
+      adminDb.settings({ ignoreUndefinedProperties: true });
+      firebaseInfo = {
+        mode: 'admin-service-account',
+        projectId: effectiveProjectId,
+        clientEmail: sa.client_email,
+        initError: null
+      };
+      console.log(`✅ Firebase Admin initialized (service account) project=${effectiveProjectId}`);
+      return;
+    } catch (error) {
+      firebaseInfo = {
+        mode: 'failed',
+        projectId: effectiveProjectId,
+        clientEmail: sa.client_email || null,
+        initError: error?.message || String(error)
+      };
+      console.error('❌ Firebase Admin init error (service account):', error);
+      // Continue to attempt fallback init below.
+    }
+  } else if (sa) {
+    firebaseInfo = {
+      mode: 'invalid-service-account-json',
+      projectId: firebaseProjectId || null,
+      clientEmail: sa.client_email || null,
+      initError: 'FIREBASE_SERVICE_ACCOUNT is set but missing required fields (project_id, client_email, private_key).'
+    };
+    console.error('❌ FIREBASE_SERVICE_ACCOUNT JSON is not a service account key. Download it from Firebase Console -> Project Settings -> Service Accounts.');
   }
-} else {
-  // Initialize Firebase Admin with default credentials (uses GOOGLE_APPLICATION_CREDENTIALS env var)
-  // Or initialize with project ID only (works if Firestore rules allow public read)
+
+  // Fallback: default credentials OR bare projectId (may still fail / be limited).
+  const effectiveProjectId = firebaseProjectId || null;
+  if (!effectiveProjectId) {
+    firebaseInfo = {
+      mode: 'missing-project-id',
+      projectId: null,
+      clientEmail: null,
+      initError: 'Set FIREBASE_PROJECT_ID or provide FIREBASE_SERVICE_ACCOUNT.'
+    };
+    console.error('❌ Firebase not configured: missing FIREBASE_PROJECT_ID and no valid FIREBASE_SERVICE_ACCOUNT.');
+    return;
+  }
+
   try {
-    // Try to initialize with just project ID (for public read access)
-    admin.initializeApp({
-      projectId: firebaseProjectId
-    });
+    admin.initializeApp({ projectId: effectiveProjectId });
     adminDb = admin.firestore();
-    // Set Firestore settings to allow public reads
     adminDb.settings({ ignoreUndefinedProperties: true });
-    console.log('✅ Firebase Admin initialized (public access mode)');
+    firebaseInfo = {
+      mode: 'admin-project-id-only',
+      projectId: effectiveProjectId,
+      clientEmail: null,
+      initError: null
+    };
+    console.log(`✅ Firebase Admin initialized (projectId only) project=${effectiveProjectId}`);
   } catch (error) {
-    console.error('❌ Firebase Admin init error:', error.message);
-    console.log('⚠️  Note: Firebase may require service account credentials for full access');
+    firebaseInfo = {
+      mode: 'failed',
+      projectId: effectiveProjectId,
+      clientEmail: null,
+      initError: error?.message || String(error)
+    };
+    console.error('❌ Firebase Admin init error (projectId only):', error);
   }
 }
+
+initFirestore();
 
 // Helper function to get Firestore instance
 function getFirestoreInstance() {
@@ -83,5 +141,6 @@ module.exports = {
   getFirestoreInstance,
   convertFirestoreData,
   admin,
-  adminDb
+  adminDb,
+  firebaseInfo: () => firebaseInfo
 };

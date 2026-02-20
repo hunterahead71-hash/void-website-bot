@@ -9,16 +9,32 @@ function required(name) {
   return value;
 }
 
+function optionalJson(name) {
+  const raw = process.env[name];
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    // Don't crash the bot; surface clear diagnostics in logs and /status.
+    console.error(`❌ Failed to parse ${name} as JSON. If you pasted a service account, ensure it is valid JSON on ONE line.`);
+    console.error(e);
+    return null;
+  }
+}
+
 module.exports = {
   discordToken: required('DISCORD_TOKEN'),
   discordClientId: required('DISCORD_CLIENT_ID'),
   discordGuildId: process.env.DISCORD_GUILD_ID || null,
-  // Firebase config (same as website)
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || 'transcend-application-bot',
-  firebaseApiKey: process.env.FIREBASE_API_KEY || 'AIzaSyDqaPyYEv7PE34Njb1w8VFXdeU8UulCXmw',
-  firebaseAuthDomain: process.env.FIREBASE_AUTH_DOMAIN || 'transcend-application-bot.firebaseapp.com',
-  // Optional: Firebase Admin Service Account (for server-side access)
-  firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null,
+
+  // Firebase (your DB). If you're trying to read the *Void website* DB, you must know its project ID
+  // (or have its public API/config + open read rules or an API endpoint). A new Firebase project will NOT contain their data.
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || null,
+  // Optional: Firebase Admin Service Account (JSON from Firebase Console -> Service Accounts)
+  firebaseServiceAccount: optionalJson('FIREBASE_SERVICE_ACCOUNT'),
+  // Optional: used only for diagnostics in /status (to tell you if you're connected to the expected website DB)
+  expectedWebsiteFirebaseProjectId: process.env.EXPECTED_WEBSITE_FIREBASE_PROJECT_ID || null,
+
   // YouTube API (for videos)
   youtubeApiKey: process.env.YOUTUBE_API_KEY || null,
   youtubeChannelId: process.env.YOUTUBE_CHANNEL_ID || null
