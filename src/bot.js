@@ -3,23 +3,30 @@ const {
   Client,
   GatewayIntentBits,
   Partials,
-  Events
+  Events,
+  REST,
+  Routes
 } = require('discord.js');
-const { discordToken } = require('./config');
+const { discordToken, discordClientId, discordGuildId } = require('./config');
 
 const {
   handleProsTotal,
   handleProsList,
-  handleProInfo
+  handleProInfo,
+  prosTotalCommand,
+  prosListCommand,
+  proInfoCommand
 } = require('./commands/pros');
 const {
   handleTeams,
-  handleTeamInfo
+  handleTeamInfo,
+  teamsCommand,
+  teamInfoCommand
 } = require('./commands/teams');
-const { handleMerch } = require('./commands/merch');
-const { handleNews } = require('./commands/news');
-const { handleVideos } = require('./commands/videos');
-const { handlePlacements } = require('./commands/placements');
+const { handleMerch, merchCommand } = require('./commands/merch');
+const { handleNews, newsCommand } = require('./commands/news');
+const { handleVideos, videosCommand } = require('./commands/videos');
+const { handlePlacements, placementsCommand } = require('./commands/placements');
 
 // Create HTTP server for Render health checks
 const PORT = process.env.PORT || 3000;
@@ -42,14 +49,61 @@ server.listen(PORT, () => {
   console.log(`Health check server listening on port ${PORT}`);
 });
 
+// Command registration function
+async function registerCommands() {
+  const commands = [
+    prosTotalCommand,
+    prosListCommand,
+    proInfoCommand,
+    teamsCommand,
+    teamInfoCommand,
+    merchCommand,
+    newsCommand,
+    videosCommand,
+    placementsCommand
+  ].map(c => c.toJSON());
+
+  const rest = new REST({ version: '10' }).setToken(discordToken);
+
+  try {
+    console.log('🔄 Started refreshing application (/) commands...');
+
+    if (discordGuildId) {
+      // Register to specific guild (instant updates)
+      await rest.put(
+        Routes.applicationGuildCommands(discordClientId, discordGuildId),
+        { body: commands }
+      );
+      console.log(`✅ Successfully registered ${commands.length} guild commands to server ${discordGuildId}`);
+    } else {
+      // Register globally (can take up to 1 hour)
+      await rest.put(
+        Routes.applicationCommands(discordClientId),
+        { body: commands }
+      );
+      console.log(`✅ Successfully registered ${commands.length} global commands (may take up to 1 hour to appear)`);
+    }
+    
+    console.log('📝 Registered commands:', commands.map(c => c.name).join(', '));
+  } catch (error) {
+    console.error('❌ Error registering commands:', error);
+    if (error.code === 50001) {
+      console.error('⚠️ Missing Access - Make sure the bot has been invited with "applications.commands" scope');
+    }
+  }
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
   partials: [Partials.Channel]
 });
 
-client.once(Events.ClientReady, c => {
+client.once(Events.ClientReady, async c => {
   console.log(`✅ Void Website Bot logged in as ${c.user.tag}`);
   console.log(`📊 Bot is ready in ${c.guilds.cache.size} server(s)`);
+  
+  // Register slash commands automatically
+  await registerCommands();
 });
 
 client.on(Events.Error, error => {
