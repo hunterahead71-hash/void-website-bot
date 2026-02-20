@@ -1,9 +1,9 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../supabaseClient');
+const { youtubeApiKey, youtubeChannelId } = require('../config');
 
 const videosCommand = new SlashCommandBuilder()
   .setName('videos')
-  .setDescription('Show latest Void YouTube/Twitch videos or VODs.')
+  .setDescription('Show latest Void YouTube videos.')
   .addIntegerOption(option =>
     option
       .setName('limit')
@@ -18,45 +18,51 @@ async function handleVideos(interaction) {
   await interaction.deferReply();
 
   try {
-    const { data: videos, error } = await supabase
-      .from('videos')
-      .select('id, title, platform, url, thumbnail_url, published_at, description')
-      .order('published_at', { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      console.error('videos error:', error);
-      await interaction.editReply('Failed to fetch videos from database.');
+    if (!youtubeApiKey || !youtubeChannelId) {
+      await interaction.editReply('❌ YouTube API not configured. Videos cannot be fetched.');
       return;
     }
 
-    if (!videos || !videos.length) {
-      await interaction.editReply('No videos found.');
+    // Fetch videos from YouTube API
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?key=${youtubeApiKey}&channelId=${youtubeChannelId}&part=snippet,id&order=date&maxResults=${limit}&type=video`
+    );
+
+    if (!response.ok) {
+      throw new Error(`YouTube API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.items || data.items.length === 0) {
+      await interaction.editReply('❌ No videos found.');
       return;
     }
 
-    const embeds = videos.map(v => {
+    const embeds = data.items.map(item => {
+      const snippet = item.snippet;
+      const videoId = item.id.videoId;
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
       const embed = new EmbedBuilder()
-        .setTitle(v.title)
-        .setDescription((v.description || 'No description.').substring(0, 4096))
-        .addFields({
-          name: 'Platform',
-          value: v.platform || 'N/A',
-          inline: true
-        })
+        .setTitle(snippet.title)
+        .setDescription((snippet.description || 'No description.').substring(0, 4096))
+        .setURL(videoUrl)
         .setColor(0xff0000)
-        .setTimestamp(v.published_at ? new Date(v.published_at) : undefined)
-        .setFooter({ text: 'Void eSports Videos' });
+        .setTimestamp(snippet.publishedAt ? new Date(snippet.publishedAt) : undefined)
+        .setFooter({ text: 'Void eSports YouTube • Live data' });
 
-      if (v.url) embed.setURL(v.url);
-      if (v.thumbnail_url) embed.setThumbnail(v.thumbnail_url);
+      if (snippet.thumbnails?.high?.url) {
+        embed.setThumbnail(snippet.thumbnails.high.url);
+      }
+
       return embed;
     });
 
     await interaction.editReply({ embeds });
   } catch (error) {
-    console.error('videos unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching videos.');
+    console.error('videos error:', error);
+    await interaction.editReply('❌ Failed to fetch videos. Make sure YouTube API is configured correctly.');
   }
 }
 
@@ -64,4 +70,3 @@ module.exports = {
   videosCommand,
   handleVideos
 };
-

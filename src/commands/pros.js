@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../supabaseClient');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 
 const prosTotalCommand = new SlashCommandBuilder()
   .setName('pros_total')
@@ -11,7 +11,7 @@ const prosListCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option
       .setName('game')
-      .setDescription('Filter by game (e.g. Valorant)')
+      .setDescription('Filter by game (e.g. Valorant, CS2)')
       .setRequired(false)
   );
 
@@ -21,7 +21,7 @@ const proInfoCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option
       .setName('name')
-      .setDescription('Exact in-game name / alias')
+      .setDescription('Pro/player name (partial match works)')
       .setRequired(true)
   );
 
@@ -29,31 +29,37 @@ async function handleProsTotal(interaction) {
   await interaction.deferReply();
 
   try {
-    // Fetch teams count
-    const { count: teamsCount, error: teamsError } = await supabase
-      .from('teams')
-      .select('*', { count: 'exact', head: true });
+    const db = getFirestoreInstance();
+    
+    // Get all teams
+    const teamsSnapshot = await db.collection('teams').get();
+    const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
+    
+    // Count total pros across all teams
+    let totalPros = 0;
+    teams.forEach(team => {
+      if (team.players && Array.isArray(team.players)) {
+        totalPros += team.players.length;
+      }
+    });
 
-    // Fetch pros count
-    const { count: prosCount, error: prosError } = await supabase
-      .from('pros')
-      .select('*', { count: 'exact', head: true });
+    // Also check ambassadors collection
+    const ambassadorsSnapshot = await db.collection('ambassadors').get();
+    const ambassadorsCount = ambassadorsSnapshot.size;
 
-    if (teamsError || prosError) {
-      console.error('pros_total error:', { teamsError, prosError });
-      await interaction.editReply('Failed to fetch pros data from database.');
-      return;
-    }
+    const totalAllPros = totalPros + ambassadorsCount;
 
-    const totalPros = prosCount || 0;
-    const totalTeams = teamsCount || 0;
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Void eSports Statistics')
+      .setDescription(`**Total Pros:** ${totalAllPros}\n**From Teams:** ${totalPros}\n**Ambassadors:** ${ambassadorsCount}\n**Total Teams:** ${teams.length}`)
+      .setColor(0x8a2be2)
+      .setTimestamp()
+      .setFooter({ text: 'Live data from Void Website' });
 
-    await interaction.editReply(
-      `We currently have **${totalPros}** pros across **${totalTeams}** teams in the database.`
-    );
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    console.error('pros_total unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching pros data.');
+    console.error('pros_total error:', error);
+    await interaction.editReply('❌ Failed to fetch pros data. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -61,33 +67,76 @@ async function handleProsList(interaction) {
   const gameFilter = interaction.options.getString('game');
   await interaction.deferReply();
 
-  let query = supabase
-    .from('pros')
-    .select('id, name, role, game, team:teams(name)');
+  try {
+    const db = getFirestoreInstance();
+    const allPros = [];
 
-  if (gameFilter) {
-    query = query.ilike('game', gameFilter);
-  }
+    // Get pros from teams
+    const teamsSnapshot = await db.collection('teams').get();
+    teamsSnapshot.docs.forEach(doc => {
+      const team = convertFirestoreData(doc);
+      if (team.players && Array.isArray(team.players)) {
+        team.players.forEach(player => {
+          if (!gameFilter || !player.game || player.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+            allPros.push({
+              ...player,
+              teamName: team.name,
+              source: 'team'
+            });
+          }
+        });
+      }
+    });
 
-  const { data: pros, error } = await query.order('name', { ascending: true });
+    // Get ambassadors
+    const ambassadorsSnapshot = await db.collection('ambassadors').get();
+    ambassadorsSnapshot.docs.forEach(doc => {
+      const ambassador = convertFirestoreData(doc);
+      if (!gameFilter || !ambassador.game || ambassador.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+        allPros.push({
+          name: ambassador.name,
+          role: ambassador.role,
+          game: ambassador.game,
+          image: ambassador.image,
+          achievements: ambassador.achievements,
+          socialLinks: ambassador.socialLinks,
+          teamName: 'Ambassador',
+          source: 'ambassador'
+        });
+      }
+    });
 
-  if (error || !pros) {
+    if (allPros.length === 0) {
+      const filterMsg = gameFilter ? ` for game "${gameFilter}"` : '';
+      await interaction.editReply(`❌ No pros found${filterMsg}.`);
+      return;
+    }
+
+    // Sort and limit
+    const sortedPros = allPros
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 25);
+
+    const lines = sortedPros.map(p => {
+      const role = p.role || 'Role N/A';
+      const game = p.game || 'Game N/A';
+      return `• **${p.name}** (${role}) – ${game} – ${p.teamName || 'No team'}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setTitle(`👥 Void Pros List${gameFilter ? ` - ${gameFilter}` : ''}`)
+      .setDescription(lines.join('\n'))
+      .setColor(0x8a2be2)
+      .setFooter({ 
+        text: `Showing ${sortedPros.length} of ${allPros.length} pros${sortedPros.length === 25 ? ' (limited to 25)' : ''}` 
+      })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
     console.error('pros_list error:', error);
-    await interaction.editReply('Failed to fetch pros list.');
-    return;
+    await interaction.editReply('❌ Failed to fetch pros list. Make sure Firebase is configured correctly.');
   }
-
-  if (!pros.length) {
-    await interaction.editReply('No pros found for that filter.');
-    return;
-  }
-
-  const lines = pros.slice(0, 25).map(p => {
-    const teamName = p.team?.name || 'No team';
-    return `• **${p.name}** (${p.role || 'Role N/A'}) – ${p.game || 'Game N/A'} – Team: ${teamName}`;
-  });
-
-  await interaction.editReply(lines.join('\n'));
 }
 
 async function handleProInfo(interaction) {
@@ -95,66 +144,70 @@ async function handleProInfo(interaction) {
   await interaction.deferReply();
 
   try {
-    const { data: pros, error } = await supabase
-      .from('pros')
-      .select(
-        `
-          id,
-          name,
-          role,
-          game,
-          bio,
-          stats,
-          achievements,
-          image_url,
-          twitter,
-          twitch,
-          youtube,
-          instagram,
-          team:teams(name)
-        `
-      )
-      .ilike('name', `%${name}%`)
-      .limit(1);
+    const db = getFirestoreInstance();
+    let foundPro = null;
+    let teamName = 'No team';
+    let source = 'unknown';
 
-    if (error) {
-      console.error('pro_info error:', error);
-      await interaction.editReply('Failed to fetch pro information from database.');
-      return;
+    // Search in teams
+    const teamsSnapshot = await db.collection('teams').get();
+    for (const doc of teamsSnapshot.docs) {
+      const team = convertFirestoreData(doc);
+      if (team.players && Array.isArray(team.players)) {
+        const player = team.players.find(p => 
+          p.name && p.name.toLowerCase().includes(name.toLowerCase())
+        );
+        if (player) {
+          foundPro = player;
+          teamName = team.name;
+          source = 'team';
+          break;
+        }
+      }
     }
 
-    if (!pros || !pros.length) {
-      await interaction.editReply(`Could not find a pro matching **${name}**. Try using `/pros_list` to see all available pros.`);
-      return;
+    // If not found, search ambassadors
+    if (!foundPro) {
+      const ambassadorsSnapshot = await db.collection('ambassadors').get();
+      for (const doc of ambassadorsSnapshot.docs) {
+        const ambassador = convertFirestoreData(doc);
+        if (ambassador.name && ambassador.name.toLowerCase().includes(name.toLowerCase())) {
+          foundPro = ambassador;
+          teamName = 'Ambassador';
+          source = 'ambassador';
+          break;
+        }
+      }
     }
 
-    const p = pros[0];
-    const teamName = p.team?.name || 'No team';
+    if (!foundPro) {
+      await interaction.editReply(`❌ Could not find a pro matching **${name}**. Try using \`/pros_list\` to see all available pros.`);
+      return;
+    }
 
     const embed = new EmbedBuilder()
-      .setTitle(p.name)
-      .setDescription(p.bio || 'No bio available.')
+      .setTitle(foundPro.name)
+      .setDescription(foundPro.description || foundPro.bio || 'No bio available.')
       .addFields(
         { name: 'Team', value: teamName, inline: true },
-        { name: 'Game', value: p.game || 'N/A', inline: true },
-        { name: 'Role', value: p.role || 'N/A', inline: true }
+        { name: 'Game', value: foundPro.game || 'N/A', inline: true },
+        { name: 'Role', value: foundPro.role || 'N/A', inline: true },
+        { name: 'Type', value: source === 'team' ? 'Team Player' : 'Ambassador', inline: true }
       )
       .setColor(0x8a2be2)
       .setTimestamp()
-      .setFooter({ text: 'Void eSports' });
+      .setFooter({ text: 'Live data from Void Website' });
 
-    if (p.achievements && Array.isArray(p.achievements) && p.achievements.length) {
-      const achievementsText = p.achievements.slice(0, 10).join('\n');
+    if (foundPro.achievements && Array.isArray(foundPro.achievements) && foundPro.achievements.length) {
+      const achievementsText = foundPro.achievements.slice(0, 10).join('\n');
       embed.addFields({
         name: 'Achievements',
-        value: achievementsText.length > 1024 
-          ? achievementsText.substring(0, 1021) + '...' 
-          : achievementsText
+        value: achievementsText.length > 1024 ? achievementsText.substring(0, 1021) + '...' : achievementsText
       });
     }
 
-    if (p.stats && Array.isArray(p.stats) && p.stats.length) {
-      const statLines = p.stats
+    if (foundPro.stats && Array.isArray(foundPro.stats) && foundPro.stats.length) {
+      const statLines = foundPro.stats
         .slice(0, 10)
         .map(s => `${s.label || 'Stat'}: ${s.value || 'N/A'}`)
         .join('\n');
@@ -167,23 +220,25 @@ async function handleProInfo(interaction) {
     }
 
     const socials = [];
-    if (p.twitter) socials.push(`[Twitter](${p.twitter})`);
-    if (p.twitch) socials.push(`[Twitch](${p.twitch})`);
-    if (p.youtube) socials.push(`[YouTube](${p.youtube})`);
-    if (p.instagram) socials.push(`[Instagram](${p.instagram})`);
+    const socialLinks = foundPro.socialLinks || {};
+    if (socialLinks.twitter) socials.push(`[Twitter](${socialLinks.twitter})`);
+    if (socialLinks.twitch) socials.push(`[Twitch](${socialLinks.twitch})`);
+    if (socialLinks.youtube) socials.push(`[YouTube](${socialLinks.youtube})`);
+    if (socialLinks.instagram) socials.push(`[Instagram](${socialLinks.instagram})`);
+    if (socialLinks.tiktok) socials.push(`[TikTok](${socialLinks.tiktok})`);
 
     if (socials.length) {
       embed.addFields({ name: 'Socials', value: socials.join(' • ') });
     }
 
-    if (p.image_url) {
-      embed.setThumbnail(p.image_url);
+    if (foundPro.image) {
+      embed.setThumbnail(foundPro.image);
     }
 
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    console.error('pro_info unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching pro information.');
+    console.error('pro_info error:', error);
+    await interaction.editReply('❌ Failed to fetch pro information. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -195,4 +250,3 @@ module.exports = {
   handleProsList,
   handleProInfo
 };
-

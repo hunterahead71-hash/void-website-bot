@@ -27,6 +27,16 @@ const { handleMerch, merchCommand } = require('./commands/merch');
 const { handleNews, newsCommand } = require('./commands/news');
 const { handleVideos, videosCommand } = require('./commands/videos');
 const { handlePlacements, placementsCommand } = require('./commands/placements');
+const {
+  handleUptime,
+  handleStatus,
+  handleStats,
+  handlePing,
+  uptimeCommand,
+  statusCommand,
+  statsCommand,
+  pingCommand
+} = require('./commands/advanced');
 
 // Create HTTP server for Render health checks
 const PORT = process.env.PORT || 3000;
@@ -60,7 +70,11 @@ async function registerCommands() {
     merchCommand,
     newsCommand,
     videosCommand,
-    placementsCommand
+    placementsCommand,
+    uptimeCommand,
+    statusCommand,
+    statsCommand,
+    pingCommand
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(discordToken);
@@ -148,6 +162,18 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'placements':
         await handlePlacements(interaction);
+        break;
+      case 'uptime':
+        await handleUptime(interaction);
+        break;
+      case 'status':
+        await handleStatus(interaction);
+        break;
+      case 'stats':
+        await handleStats(interaction);
+        break;
+      case 'ping':
+        await handlePing(interaction);
         break;
       default:
         await interaction.reply({ content: 'Unknown command.', ephemeral: true });

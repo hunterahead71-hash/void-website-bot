@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../supabaseClient');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 
 const placementsCommand = new SlashCommandBuilder()
   .setName('placements')
@@ -25,27 +25,24 @@ async function handlePlacements(interaction) {
   await interaction.deferReply();
 
   try {
-    let query = supabase
-      .from('placements')
-      .select('id, game, tournament, team_name, position, prize, event_date')
-      .order('event_date', { ascending: false })
+    const db = getFirestoreInstance();
+    let query = db.collection('placements')
+      .orderBy('createdAt', 'desc')
       .limit(limit);
 
+    const placementsSnapshot = await query.get();
+    let placements = placementsSnapshot.docs.map(doc => convertFirestoreData(doc));
+
+    // Filter by game if provided
     if (game) {
-      query = query.ilike('game', `%${game}%`);
+      placements = placements.filter(p => 
+        p.game && p.game.toLowerCase().includes(game.toLowerCase())
+      );
     }
 
-    const { data: placements, error } = await query;
-
-    if (error) {
-      console.error('placements error:', error);
-      await interaction.editReply('Failed to fetch placements from database.');
-      return;
-    }
-
-    if (!placements || !placements.length) {
+    if (!placements || placements.length === 0) {
       const filterMsg = game ? ` for game "${game}"` : '';
-      await interaction.editReply(`No placements found${filterMsg}.`);
+      await interaction.editReply(`❌ No placements found${filterMsg}.`);
       return;
     }
 
@@ -53,15 +50,26 @@ async function handlePlacements(interaction) {
       const embed = new EmbedBuilder()
         .setTitle(`${p.tournament} – ${p.position}`)
         .addFields(
-          { name: 'Team', value: p.team_name || 'N/A', inline: true },
+          { name: 'Team', value: p.team || 'N/A', inline: true },
           { name: 'Game', value: p.game || 'N/A', inline: true }
         )
         .setColor(0x1e90ff)
-        .setTimestamp(p.event_date ? new Date(p.event_date) : undefined)
-        .setFooter({ text: 'Void eSports Placements' });
+        .setTimestamp(p.createdAt ? new Date(p.createdAt) : undefined)
+        .setFooter({ text: 'Void eSports Placements • Live data' });
 
       if (p.prize) {
         embed.addFields({ name: 'Prize', value: p.prize, inline: true });
+      }
+
+      if (p.players && Array.isArray(p.players) && p.players.length) {
+        embed.addFields({ 
+          name: 'Players', 
+          value: p.players.slice(0, 5).join(', ') + (p.players.length > 5 ? '...' : '')
+        });
+      }
+
+      if (p.logo) {
+        embed.setThumbnail(p.logo);
       }
 
       return embed;
@@ -69,8 +77,8 @@ async function handlePlacements(interaction) {
 
     await interaction.editReply({ embeds });
   } catch (error) {
-    console.error('placements unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching placements.');
+    console.error('placements error:', error);
+    await interaction.editReply('❌ Failed to fetch placements. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -78,4 +86,3 @@ module.exports = {
   placementsCommand,
   handlePlacements
 };
-

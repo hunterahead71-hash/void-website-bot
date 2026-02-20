@@ -14,6 +14,12 @@ const { merchCommand } = require('./commands/merch');
 const { newsCommand } = require('./commands/news');
 const { videosCommand } = require('./commands/videos');
 const { placementsCommand } = require('./commands/placements');
+const {
+  uptimeCommand,
+  statusCommand,
+  statsCommand,
+  pingCommand
+} = require('./commands/advanced');
 
 const commands = [
   prosTotalCommand,
@@ -24,7 +30,11 @@ const commands = [
   merchCommand,
   newsCommand,
   videosCommand,
-  placementsCommand
+  placementsCommand,
+  uptimeCommand,
+  statusCommand,
+  statsCommand,
+  pingCommand
 ].map(c => c.toJSON());
 
 async function registerCommands() {

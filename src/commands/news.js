@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../supabaseClient');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 
 const newsCommand = new SlashCommandBuilder()
   .setName('news')
@@ -18,41 +18,45 @@ async function handleNews(interaction) {
   await interaction.deferReply();
 
   try {
-    const { data: articles, error } = await supabase
-      .from('news')
-      .select('id, title, summary, url, image_url, published_at')
-      .order('published_at', { ascending: false })
-      .limit(limit);
+    const db = getFirestoreInstance();
+    const newsSnapshot = await db.collection('newsArticles')
+      .orderBy('date', 'desc')
+      .limit(limit)
+      .get();
 
-    if (error) {
-      console.error('news error:', error);
-      await interaction.editReply('Failed to fetch news from database.');
-      return;
-    }
+    const articles = newsSnapshot.docs.map(doc => convertFirestoreData(doc));
 
-    if (!articles || !articles.length) {
-      await interaction.editReply('No news articles found.');
+    if (!articles || articles.length === 0) {
+      await interaction.editReply('❌ No news articles found.');
       return;
     }
 
     const embeds = articles.map(a => {
       const embed = new EmbedBuilder()
         .setTitle(a.title)
-        .setDescription((a.summary || 'No summary.').substring(0, 4096))
+        .setDescription((a.description || 'No summary.').substring(0, 4096))
         .setColor(0x00ff7f)
-        .setTimestamp(a.published_at ? new Date(a.published_at) : undefined)
-        .setFooter({ text: 'Void eSports News' });
+        .setTimestamp(a.date ? new Date(a.date) : undefined)
+        .setFooter({ text: 'Void eSports News • Live data' });
 
-      if (a.url) embed.setURL(a.url);
-      if (a.image_url) embed.setThumbnail(a.image_url);
+      if (a.category) {
+        embed.addFields({ name: 'Category', value: a.category, inline: true });
+      }
+      if (a.isEvent && a.eventDate) {
+        embed.addFields({ name: 'Event Date', value: new Date(a.eventDate).toLocaleDateString(), inline: true });
+      }
+
+      if (a.image) {
+        embed.setThumbnail(a.image);
+      }
 
       return embed;
     });
 
     await interaction.editReply({ embeds });
   } catch (error) {
-    console.error('news unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching news.');
+    console.error('news error:', error);
+    await interaction.editReply('❌ Failed to fetch news. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -60,4 +64,3 @@ module.exports = {
   newsCommand,
   handleNews
 };
-

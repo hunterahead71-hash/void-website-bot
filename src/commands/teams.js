@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../supabaseClient');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 
 const teamsCommand = new SlashCommandBuilder()
   .setName('teams')
@@ -11,7 +11,7 @@ const teamInfoCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option
       .setName('name')
-      .setDescription('Team name')
+      .setDescription('Team name (partial match works)')
       .setRequired(true)
   );
 
@@ -19,32 +19,35 @@ async function handleTeams(interaction) {
   await interaction.deferReply();
 
   try {
-    const { data: teams, error } = await supabase
-      .from('teams')
-      .select('id, name, game, region')
-      .order('name', { ascending: true });
+    const db = getFirestoreInstance();
+    const teamsSnapshot = await db.collection('teams').get();
+    const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
 
-    if (error) {
-      console.error('teams error:', error);
-      await interaction.editReply('Failed to fetch teams from database.');
+    if (!teams || teams.length === 0) {
+      await interaction.editReply('❌ No teams found in the database.');
       return;
     }
 
-    if (!teams || !teams.length) {
-      await interaction.editReply('No teams found in the database.');
-      return;
-    }
+    // Sort by name
+    teams.sort((a, b) => a.name.localeCompare(b.name));
 
     const lines = teams.map(t => {
-      const region = t.region || 'Region N/A';
-      const game = t.game || 'Game N/A';
-      return `• **${t.name}** – ${game} – ${region}`;
+      const game = t.players && t.players.length > 0 ? t.players[0].game || 'Game N/A' : 'Game N/A';
+      const playerCount = t.players ? t.players.length : 0;
+      return `• **${t.name}** – ${game} – ${playerCount} player${playerCount !== 1 ? 's' : ''}`;
     });
 
-    await interaction.editReply(lines.join('\n'));
+    const embed = new EmbedBuilder()
+      .setTitle('🏆 Void eSports Teams')
+      .setDescription(lines.join('\n'))
+      .setColor(0x00bfff)
+      .setTimestamp()
+      .setFooter({ text: `Total: ${teams.length} teams • Live data from Void Website` });
+
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    console.error('teams unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching teams.');
+    console.error('teams error:', error);
+    await interaction.editReply('❌ Failed to fetch teams. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -53,66 +56,64 @@ async function handleTeamInfo(interaction) {
   await interaction.deferReply();
 
   try {
-    const { data: teams, error } = await supabase
-      .from('teams')
-      .select('id, name, game, region, description, logo_url')
-      .ilike('name', `%${name}%`)
-      .limit(1);
+    const db = getFirestoreInstance();
+    const teamsSnapshot = await db.collection('teams').get();
+    const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
 
-    if (error) {
-      console.error('team_info error:', error);
-      await interaction.editReply('Failed to fetch team information from database.');
+    // Find team (case-insensitive partial match)
+    const team = teams.find(t => 
+      t.name && t.name.toLowerCase().includes(name.toLowerCase())
+    );
+
+    if (!team) {
+      await interaction.editReply(`❌ Team **${name}** not found. Try using \`/teams\` to see all available teams.`);
       return;
-    }
-
-    if (!teams || !teams.length) {
-      await interaction.editReply(`Team **${name}** not found. Try using `/teams` to see all available teams.`);
-      return;
-    }
-
-    const team = teams[0];
-
-    const { data: pros, error: prosError } = await supabase
-      .from('pros')
-      .select('name, role, game')
-      .eq('team_id', team.id)
-      .order('role', { ascending: true });
-
-    if (prosError) {
-      console.error('team_info pros error:', prosError);
     }
 
     const embed = new EmbedBuilder()
       .setTitle(team.name)
       .setDescription(team.description || 'No description provided.')
-      .addFields(
-        { name: 'Game', value: team.game || 'N/A', inline: true },
-        { name: 'Region', value: team.region || 'N/A', inline: true }
-      )
       .setColor(0x00bfff)
       .setTimestamp()
-      .setFooter({ text: 'Void eSports' });
+      .setFooter({ text: 'Live data from Void Website' });
 
-    if (team.logo_url) {
-      embed.setThumbnail(team.logo_url);
+    // Add achievements if available
+    if (team.achievements && Array.isArray(team.achievements) && team.achievements.length) {
+      const achievementsText = team.achievements.slice(0, 10).join('\n');
+      embed.addFields({
+        name: 'Achievements',
+        value: achievementsText.length > 1024 ? achievementsText.substring(0, 1021) + '...' : achievementsText
+      });
     }
 
-    if (pros && pros.length) {
-      const rosterLines = pros
+    // Add roster
+    if (team.players && Array.isArray(team.players) && team.players.length) {
+      const rosterLines = team.players
         .map(p => `• **${p.name}** – ${p.role || 'Role N/A'} (${p.game || 'Game N/A'})`)
         .join('\n');
+      
       embed.addFields({ 
-        name: `Roster (${pros.length})`, 
+        name: `Roster (${team.players.length})`, 
         value: rosterLines.length > 1024 ? rosterLines.substring(0, 1021) + '...' : rosterLines 
       });
+
+      // Determine primary game from players
+      const games = [...new Set(team.players.map(p => p.game).filter(Boolean))];
+      if (games.length > 0) {
+        embed.addFields({ name: 'Games', value: games.join(', '), inline: true });
+      }
     } else {
       embed.addFields({ name: 'Roster', value: 'No players found for this team.' });
     }
 
+    if (team.image) {
+      embed.setThumbnail(team.image);
+    }
+
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    console.error('team_info unexpected error:', error);
-    await interaction.editReply('An unexpected error occurred while fetching team information.');
+    console.error('team_info error:', error);
+    await interaction.editReply('❌ Failed to fetch team information. Make sure Firebase is configured correctly.');
   }
 }
 
@@ -122,4 +123,3 @@ module.exports = {
   handleTeams,
   handleTeamInfo
 };
-
