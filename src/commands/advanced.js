@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, firebaseInfo } = require('../firebaseClient');
-const { expectedWebsiteFirebaseProjectId } = require('../config');
 
 const uptimeCommand = new SlashCommandBuilder()
   .setName('uptime')
@@ -59,25 +58,12 @@ async function handleStatus(interaction) {
   const info = firebaseInfo();
   const statusChecks = {
     discord: '✅ Connected',
-    firebase: info.mode.startsWith('admin') ? '✅ Initialized' : `⚠️ ${info.mode}`,
+    firebase: (info.mode === 'client-website-config' || info.mode.startsWith('admin')) ? '✅ Connected' : `⚠️ ${info.mode}`,
     project: info.projectId || 'N/A',
-    serviceAccount: info.clientEmail || 'N/A',
-    websiteMatch: 'Unknown',
+    dataSource: info.mode === 'client-website-config' ? 'Void website (live)' : info.mode,
     collections: 'Not checked'
   };
 
-  if (expectedWebsiteFirebaseProjectId && info.projectId) {
-    statusChecks.websiteMatch =
-      expectedWebsiteFirebaseProjectId === info.projectId
-        ? '✅ Yes (matches expected website project)'
-        : `❌ No (expected ${expectedWebsiteFirebaseProjectId})`;
-  } else if (expectedWebsiteFirebaseProjectId) {
-    statusChecks.websiteMatch = `⚠️ Expected ${expectedWebsiteFirebaseProjectId} but bot has no projectId`;
-  } else {
-    statusChecks.websiteMatch = '⚠️ Not configured (set EXPECTED_WEBSITE_FIREBASE_PROJECT_ID to compare)';
-  }
-
-  // Check per-collection read access (diagnostic)
   try {
     const db = getFirestoreInstance();
     const collectionsToTest = ['teams', 'products', 'newsArticles', 'placements', 'ambassadors'];
@@ -87,25 +73,24 @@ async function handleStatus(interaction) {
           await db.collection(c).limit(1).get();
           return `✅ ${c}`;
         } catch (e) {
-          return `❌ ${c}`;
+          return `❌ ${c}: ${e.message}`;
         }
       })
     );
     statusChecks.collections = results.join('\n');
   } catch (error) {
-    statusChecks.collections = `❌ Firebase error: ${error.message}`;
+    statusChecks.collections = `❌ ${error.message}`;
   }
 
   const embed = new EmbedBuilder()
     .setTitle('🔌 Connection Status')
-    .setDescription('Real-time connection status to all services')
+    .setDescription('Real-time connection to Void website Firebase')
     .addFields(
       { name: 'Discord', value: statusChecks.discord, inline: true },
-      { name: 'Firebase Init', value: statusChecks.firebase, inline: true },
-      { name: 'Project ID', value: statusChecks.project, inline: true },
-      { name: 'Service Account', value: statusChecks.serviceAccount, inline: false },
-      { name: 'Is this the website DB?', value: statusChecks.websiteMatch, inline: false },
-      { name: 'Collection access', value: statusChecks.collections, inline: false }
+      { name: 'Firebase', value: statusChecks.firebase, inline: true },
+      { name: 'Project', value: statusChecks.project, inline: true },
+      { name: 'Data source', value: statusChecks.dataSource, inline: false },
+      { name: 'Collections', value: statusChecks.collections, inline: false }
     )
     .setColor(statusChecks.collections.includes('✅') ? 0x00ff00 : 0xff0000)
     .setTimestamp()
