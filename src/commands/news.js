@@ -14,43 +14,46 @@ const newsCommand = new SlashCommandBuilder()
   );
 
 async function handleNews(interaction) {
-  const limit = interaction.options.getInteger('limit') || 5;
+  const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
   await interaction.deferReply();
 
-  const { data: articles, error } = await supabase
-    .from('news')
-    .select('id, title, summary, url, image_url, published_at')
-    .order('published_at', { ascending: false })
-    .limit(limit);
+  try {
+    const { data: articles, error } = await supabase
+      .from('news')
+      .select('id, title, summary, url, image_url, published_at')
+      .order('published_at', { ascending: false })
+      .limit(limit);
 
-  if (error || !articles) {
-    console.error('news error:', error);
-    await interaction.editReply('Failed to fetch news.');
-    return;
-  }
-
-  if (!articles.length) {
-    await interaction.editReply('No news articles found.');
-    return;
-  }
-
-  const embeds = articles.map(a => {
-    const embed = new EmbedBuilder()
-      .setTitle(a.title)
-      .setDescription(a.summary || 'No summary.')
-      .setColor(0x00ff7f);
-
-    if (a.url) embed.setURL(a.url);
-    if (a.image_url) embed.setThumbnail(a.image_url);
-
-    if (a.published_at) {
-      embed.setFooter({ text: `Published: ${new Date(a.published_at).toLocaleString()}` });
+    if (error) {
+      console.error('news error:', error);
+      await interaction.editReply('Failed to fetch news from database.');
+      return;
     }
 
-    return embed;
-  });
+    if (!articles || !articles.length) {
+      await interaction.editReply('No news articles found.');
+      return;
+    }
 
-  await interaction.editReply({ embeds });
+    const embeds = articles.map(a => {
+      const embed = new EmbedBuilder()
+        .setTitle(a.title)
+        .setDescription((a.summary || 'No summary.').substring(0, 4096))
+        .setColor(0x00ff7f)
+        .setTimestamp(a.published_at ? new Date(a.published_at) : undefined)
+        .setFooter({ text: 'Void eSports News' });
+
+      if (a.url) embed.setURL(a.url);
+      if (a.image_url) embed.setThumbnail(a.image_url);
+
+      return embed;
+    });
+
+    await interaction.editReply({ embeds });
+  } catch (error) {
+    console.error('news unexpected error:', error);
+    await interaction.editReply('An unexpected error occurred while fetching news.');
+  }
 }
 
 module.exports = {

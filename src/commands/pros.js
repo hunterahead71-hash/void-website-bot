@@ -28,28 +28,33 @@ const proInfoCommand = new SlashCommandBuilder()
 async function handleProsTotal(interaction) {
   await interaction.deferReply();
 
-  const { data: teams, error } = await supabase
-    .from('teams')
-    .select('id, name, pros(count)');
+  try {
+    // Fetch teams count
+    const { count: teamsCount, error: teamsError } = await supabase
+      .from('teams')
+      .select('*', { count: 'exact', head: true });
 
-  if (error || !teams) {
-    console.error('pros_total error:', error);
-    await interaction.editReply('Failed to fetch pros data.');
-    return;
-  }
+    // Fetch pros count
+    const { count: prosCount, error: prosError } = await supabase
+      .from('pros')
+      .select('*', { count: 'exact', head: true });
 
-  let totalPros = 0;
-  for (const t of teams) {
-    if (Array.isArray(t.pros)) {
-      totalPros += t.pros.length;
-    } else if (typeof t.pros === 'object' && t.pros.count != null) {
-      totalPros += t.pros.count;
+    if (teamsError || prosError) {
+      console.error('pros_total error:', { teamsError, prosError });
+      await interaction.editReply('Failed to fetch pros data from database.');
+      return;
     }
-  }
 
-  await interaction.editReply(
-    `We currently have **${totalPros}** pros across **${teams.length}** teams in the database.`
-  );
+    const totalPros = prosCount || 0;
+    const totalTeams = teamsCount || 0;
+
+    await interaction.editReply(
+      `We currently have **${totalPros}** pros across **${totalTeams}** teams in the database.`
+    );
+  } catch (error) {
+    console.error('pros_total unexpected error:', error);
+    await interaction.editReply('An unexpected error occurred while fetching pros data.');
+  }
 }
 
 async function handleProsList(interaction) {
@@ -89,77 +94,97 @@ async function handleProInfo(interaction) {
   const name = interaction.options.getString('name');
   await interaction.deferReply();
 
-  const { data: pros, error } = await supabase
-    .from('pros')
-    .select(
-      `
-        id,
-        name,
-        role,
-        game,
-        bio,
-        stats,
-        achievements,
-        image_url,
-        twitter,
-        twitch,
-        youtube,
-        instagram,
-        team:teams(name)
-      `
-    )
-    .ilike('name', name)
-    .limit(1);
+  try {
+    const { data: pros, error } = await supabase
+      .from('pros')
+      .select(
+        `
+          id,
+          name,
+          role,
+          game,
+          bio,
+          stats,
+          achievements,
+          image_url,
+          twitter,
+          twitch,
+          youtube,
+          instagram,
+          team:teams(name)
+        `
+      )
+      .ilike('name', `%${name}%`)
+      .limit(1);
 
-  if (error || !pros || !pros.length) {
-    console.error('pro_info error:', error);
-    await interaction.editReply(`Could not find a pro named **${name}**.`);
-    return;
+    if (error) {
+      console.error('pro_info error:', error);
+      await interaction.editReply('Failed to fetch pro information from database.');
+      return;
+    }
+
+    if (!pros || !pros.length) {
+      await interaction.editReply(`Could not find a pro matching **${name}**. Try using `/pros_list` to see all available pros.`);
+      return;
+    }
+
+    const p = pros[0];
+    const teamName = p.team?.name || 'No team';
+
+    const embed = new EmbedBuilder()
+      .setTitle(p.name)
+      .setDescription(p.bio || 'No bio available.')
+      .addFields(
+        { name: 'Team', value: teamName, inline: true },
+        { name: 'Game', value: p.game || 'N/A', inline: true },
+        { name: 'Role', value: p.role || 'N/A', inline: true }
+      )
+      .setColor(0x8a2be2)
+      .setTimestamp()
+      .setFooter({ text: 'Void eSports' });
+
+    if (p.achievements && Array.isArray(p.achievements) && p.achievements.length) {
+      const achievementsText = p.achievements.slice(0, 10).join('\n');
+      embed.addFields({
+        name: 'Achievements',
+        value: achievementsText.length > 1024 
+          ? achievementsText.substring(0, 1021) + '...' 
+          : achievementsText
+      });
+    }
+
+    if (p.stats && Array.isArray(p.stats) && p.stats.length) {
+      const statLines = p.stats
+        .slice(0, 10)
+        .map(s => `${s.label || 'Stat'}: ${s.value || 'N/A'}`)
+        .join('\n');
+      if (statLines.length > 0) {
+        embed.addFields({ 
+          name: 'Key Stats', 
+          value: statLines.length > 1024 ? statLines.substring(0, 1021) + '...' : statLines 
+        });
+      }
+    }
+
+    const socials = [];
+    if (p.twitter) socials.push(`[Twitter](${p.twitter})`);
+    if (p.twitch) socials.push(`[Twitch](${p.twitch})`);
+    if (p.youtube) socials.push(`[YouTube](${p.youtube})`);
+    if (p.instagram) socials.push(`[Instagram](${p.instagram})`);
+
+    if (socials.length) {
+      embed.addFields({ name: 'Socials', value: socials.join(' • ') });
+    }
+
+    if (p.image_url) {
+      embed.setThumbnail(p.image_url);
+    }
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    console.error('pro_info unexpected error:', error);
+    await interaction.editReply('An unexpected error occurred while fetching pro information.');
   }
-
-  const p = pros[0];
-  const teamName = p.team?.name || 'No team';
-
-  const embed = new EmbedBuilder()
-    .setTitle(p.name)
-    .setDescription(p.bio || 'No bio available.')
-    .addFields(
-      { name: 'Team', value: teamName, inline: true },
-      { name: 'Game', value: p.game || 'N/A', inline: true },
-      { name: 'Role', value: p.role || 'N/A', inline: true }
-    )
-    .setColor(0x8a2be2);
-
-  if (p.achievements && Array.isArray(p.achievements) && p.achievements.length) {
-    embed.addFields({
-      name: 'Achievements',
-      value: p.achievements.slice(0, 10).join('\n')
-    });
-  }
-
-  if (p.stats && Array.isArray(p.stats) && p.stats.length) {
-    const statLines = p.stats
-      .slice(0, 10)
-      .map(s => `${s.label}: ${s.value}`)
-      .join('\n');
-    embed.addFields({ name: 'Key Stats', value: statLines });
-  }
-
-  const socials = [];
-  if (p.twitter) socials.push(`[Twitter](${p.twitter})`);
-  if (p.twitch) socials.push(`[Twitch](${p.twitch})`);
-  if (p.youtube) socials.push(`[YouTube](${p.youtube})`);
-  if (p.instagram) socials.push(`[Instagram](${p.instagram})`);
-
-  if (socials.length) {
-    embed.addFields({ name: 'Socials', value: socials.join(' • ') });
-  }
-
-  if (p.image_url) {
-    embed.setThumbnail(p.image_url);
-  }
-
-  await interaction.editReply({ embeds: [embed] });
 }
 
 module.exports = {

@@ -14,46 +14,50 @@ const videosCommand = new SlashCommandBuilder()
   );
 
 async function handleVideos(interaction) {
-  const limit = interaction.options.getInteger('limit') || 5;
+  const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
   await interaction.deferReply();
 
-  const { data: videos, error } = await supabase
-    .from('videos')
-    .select('id, title, platform, url, thumbnail_url, published_at, description')
-    .order('published_at', { ascending: false })
-    .limit(limit);
+  try {
+    const { data: videos, error } = await supabase
+      .from('videos')
+      .select('id, title, platform, url, thumbnail_url, published_at, description')
+      .order('published_at', { ascending: false })
+      .limit(limit);
 
-  if (error || !videos) {
-    console.error('videos error:', error);
-    await interaction.editReply('Failed to fetch videos.');
-    return;
-  }
-
-  if (!videos.length) {
-    await interaction.editReply('No videos found.');
-    return;
-  }
-
-  const embeds = videos.map(v => {
-    const embed = new EmbedBuilder()
-      .setTitle(v.title)
-      .setDescription(v.description || 'No description.')
-      .addFields({
-        name: 'Platform',
-        value: v.platform || 'N/A',
-        inline: true
-      })
-      .setColor(0xff0000);
-
-    if (v.url) embed.setURL(v.url);
-    if (v.thumbnail_url) embed.setThumbnail(v.thumbnail_url);
-    if (v.published_at) {
-      embed.setFooter({ text: `Published: ${new Date(v.published_at).toLocaleString()}` });
+    if (error) {
+      console.error('videos error:', error);
+      await interaction.editReply('Failed to fetch videos from database.');
+      return;
     }
-    return embed;
-  });
 
-  await interaction.editReply({ embeds });
+    if (!videos || !videos.length) {
+      await interaction.editReply('No videos found.');
+      return;
+    }
+
+    const embeds = videos.map(v => {
+      const embed = new EmbedBuilder()
+        .setTitle(v.title)
+        .setDescription((v.description || 'No description.').substring(0, 4096))
+        .addFields({
+          name: 'Platform',
+          value: v.platform || 'N/A',
+          inline: true
+        })
+        .setColor(0xff0000)
+        .setTimestamp(v.published_at ? new Date(v.published_at) : undefined)
+        .setFooter({ text: 'Void eSports Videos' });
+
+      if (v.url) embed.setURL(v.url);
+      if (v.thumbnail_url) embed.setThumbnail(v.thumbnail_url);
+      return embed;
+    });
+
+    await interaction.editReply({ embeds });
+  } catch (error) {
+    console.error('videos unexpected error:', error);
+    await interaction.editReply('An unexpected error occurred while fetching videos.');
+  }
 }
 
 module.exports = {
