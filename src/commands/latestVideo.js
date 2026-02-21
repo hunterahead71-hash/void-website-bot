@@ -208,17 +208,17 @@ async function handleLatestVideo(interaction) {
     const row = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
-          .setLabel('▶ Watch on YouTube')
+          .setLabel(' Watch on YouTube')
           .setStyle(ButtonStyle.Link)
           .setURL(videoData.url)
           .setEmoji('📺'),
         new ButtonBuilder()
-          .setLabel('🔄 Refresh')
+          .setLabel(' Refresh')
           .setStyle(ButtonStyle.Primary)
           .setCustomId('refresh_latest_youtube')
           .setEmoji('🔄'),
         new ButtonBuilder()
-          .setLabel('📤 Share')
+          .setLabel(' Share')
           .setStyle(ButtonStyle.Secondary)
           .setCustomId('share_youtube_latest')
           .setEmoji('📤')
@@ -228,12 +228,12 @@ async function handleLatestVideo(interaction) {
     const row2 = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
-          .setLabel('📺 Visit Channel')
+          .setLabel(' Visit Channel')
           .setStyle(ButtonStyle.Link)
           .setURL(`https://youtube.com/channel/${videoData.channelId}`)
           .setEmoji('📺'),
         new ButtonBuilder()
-          .setLabel('🔔 Subscribe')
+          .setLabel(' Subscribe')
           .setStyle(ButtonStyle.Link)
           .setURL(`https://www.youtube.com/channel/${videoData.channelId}?sub_confirmation=1`)
           .setEmoji('🔔')
