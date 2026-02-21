@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const teamsCommand = new SlashCommandBuilder()
   .setName('teams')
@@ -16,8 +17,6 @@ const teamInfoCommand = new SlashCommandBuilder()
   );
 
 async function handleTeams(interaction) {
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     const teamsSnapshot = await db.collection('teams').get();
@@ -53,8 +52,6 @@ async function handleTeams(interaction) {
 
 async function handleTeamInfo(interaction) {
   const name = interaction.options.getString('name');
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     const teamsSnapshot = await db.collection('teams').get();
@@ -106,10 +103,7 @@ async function handleTeamInfo(interaction) {
       embed.addFields({ name: 'Roster', value: 'No players found for this team.' });
     }
 
-    if (team.image) {
-      embed.setThumbnail(team.image);
-    }
-
+    setThumbnailIfValid(embed, team.image);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('team_info error:', error);

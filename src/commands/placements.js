@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const placementsCommand = new SlashCommandBuilder()
   .setName('placements')
@@ -22,8 +23,6 @@ const placementsCommand = new SlashCommandBuilder()
 async function handlePlacements(interaction) {
   const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
   const game = interaction.options.getString('game');
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     let query = db.collection('placements')
@@ -68,10 +67,7 @@ async function handlePlacements(interaction) {
         });
       }
 
-      if (p.logo) {
-        embed.setThumbnail(p.logo);
-      }
-
+      setThumbnailIfValid(embed, p.logo);
       return embed;
     });
 

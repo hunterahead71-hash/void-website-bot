@@ -4,8 +4,13 @@ const { discordToken, discordClientId, discordGuildId } = require('./config');
 const {
   prosTotalCommand,
   prosListCommand,
-  proInfoCommand
+  proInfoCommand,
+  listProsCommand
 } = require('./commands/pros');
+const {
+  addProCommand,
+  addMerchCommand
+} = require('./commands/admin');
 const {
   teamsCommand,
   teamInfoCommand
@@ -25,6 +30,7 @@ const commands = [
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
+  listProsCommand,
   teamsCommand,
   teamInfoCommand,
   merchCommand,
@@ -34,7 +40,9 @@ const commands = [
   uptimeCommand,
   statusCommand,
   statsCommand,
-  pingCommand
+  pingCommand,
+  addProCommand,
+  addMerchCommand
 ].map(c => c.toJSON());
 
 async function registerCommands() {

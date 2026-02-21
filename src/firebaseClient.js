@@ -6,7 +6,10 @@ const {
   limit,
   where,
   getDoc,
-  doc
+  doc,
+  addDoc,
+  setDoc,
+  Timestamp
 } = require('firebase/firestore');
 const { initializeApp } = require('firebase/app');
 const { getFirestore } = require('firebase/firestore');
@@ -110,13 +113,15 @@ function convertFirestoreData(docSnap) {
 
 module.exports = {
   getFirestoreInstance,
+  getRawFirestore: () => db,
   convertFirestoreData,
   firebaseInfo: () => firebaseInfo,
-  // For commands that need raw Firestore (e.g. query with orderBy + limit)
-  getRawFirestore: () => db,
   collection,
   getDocs,
   query,
   orderBy,
-  limit
+  limit,
+  addDoc,
+  setDoc,
+  Timestamp
 };

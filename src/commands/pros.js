@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const prosTotalCommand = new SlashCommandBuilder()
   .setName('pros_total')
@@ -17,17 +18,25 @@ const prosListCommand = new SlashCommandBuilder()
 
 const proInfoCommand = new SlashCommandBuilder()
   .setName('pro_info')
-  .setDescription('Get detailed information about a specific pro.')
+  .setDescription('Get detailed pro info by username (e.g. Void Sails). Shows stats, social links, achievements.')
   .addStringOption(option =>
     option
       .setName('name')
-      .setDescription('Pro/player name (partial match works)')
+      .setDescription('Username as per the pro list (e.g. Void Sails)')
+      .setRequired(true)
+  );
+
+const listProsCommand = new SlashCommandBuilder()
+  .setName('list_pros')
+  .setDescription('List all pros for a specific game only (e.g. Fortnite).')
+  .addStringOption(option =>
+    option
+      .setName('game')
+      .setDescription('Game name (e.g. Fortnite, Valorant, CS2)')
       .setRequired(true)
   );
 
 async function handleProsTotal(interaction) {
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     
@@ -65,8 +74,6 @@ async function handleProsTotal(interaction) {
 
 async function handleProsList(interaction) {
   const gameFilter = interaction.options.getString('game');
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     const allPros = [];
@@ -141,8 +148,6 @@ async function handleProsList(interaction) {
 
 async function handleProInfo(interaction) {
   const name = interaction.options.getString('name');
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     let foundPro = null;
@@ -231,10 +236,7 @@ async function handleProInfo(interaction) {
       embed.addFields({ name: 'Socials', value: socials.join(' • ') });
     }
 
-    if (foundPro.image) {
-      embed.setThumbnail(foundPro.image);
-    }
-
+    setThumbnailIfValid(embed, foundPro.image);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('pro_info error:', error);
@@ -242,11 +244,61 @@ async function handleProInfo(interaction) {
   }
 }
 
+async function handleListPros(interaction) {
+  const gameFilter = interaction.options.getString('game');
+  try {
+    const db = getFirestoreInstance();
+    const allPros = [];
+    const teamsSnapshot = await db.collection('teams').get();
+    teamsSnapshot.docs.forEach(doc => {
+      const team = convertFirestoreData(doc);
+      if (team.players && Array.isArray(team.players)) {
+        team.players.forEach(player => {
+          if (player.game && player.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+            allPros.push({ ...player, teamName: team.name, source: 'team' });
+          }
+        });
+      }
+    });
+    const ambassadorsSnapshot = await db.collection('ambassadors').get();
+    ambassadorsSnapshot.docs.forEach(doc => {
+      const ambassador = convertFirestoreData(doc);
+      if (ambassador.game && ambassador.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+        allPros.push({
+          name: ambassador.name,
+          role: ambassador.role,
+          game: ambassador.game,
+          teamName: 'Ambassador',
+          source: 'ambassador'
+        });
+      }
+    });
+    if (allPros.length === 0) {
+      await interaction.editReply(`❌ No pros found for **${gameFilter}**.`);
+      return;
+    }
+    const sortedPros = allPros.sort((a, b) => (a.name || '').localeCompare(b.name || '')).slice(0, 25);
+    const lines = sortedPros.map(p => `• **${p.name}** (${p.role || '—'}) – ${p.teamName || '—'}`);
+    const embed = new EmbedBuilder()
+      .setTitle(`👥 ${gameFilter} Pros`)
+      .setDescription(lines.join('\n'))
+      .setColor(0x8a2be2)
+      .setFooter({ text: `Showing ${sortedPros.length} of ${allPros.length}` })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    console.error('list_pros error:', error);
+    await interaction.editReply('❌ Failed to fetch pros list.');
+  }
+}
+
 module.exports = {
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
+  listProsCommand,
   handleProsTotal,
   handleProsList,
-  handleProInfo
+  handleProInfo,
+  handleListPros
 };

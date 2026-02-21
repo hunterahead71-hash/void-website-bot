@@ -1,9 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const merchCommand = new SlashCommandBuilder()
   .setName('merch')
-  .setDescription('Show merch/products from the Void store.')
+  .setDescription('Show current merch names and prices from the Void store.')
   .addStringOption(option =>
     option
       .setName('category')
@@ -13,58 +14,38 @@ const merchCommand = new SlashCommandBuilder()
 
 async function handleMerch(interaction) {
   const category = interaction.options.getString('category');
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
-    let query = db.collection('products').orderBy('createdAt', 'desc').limit(5);
+    const productsSnapshot = await db.collection('products').orderBy('createdAt', 'desc').limit(20).get();
+    let products = (productsSnapshot.docs || []).map(doc => convertFirestoreData(doc));
 
-    const productsSnapshot = await query.get();
-    let products = productsSnapshot.docs.map(doc => convertFirestoreData(doc));
-
-    // Filter by category if provided
     if (category) {
-      products = products.filter(p => 
+      products = products.filter(p =>
         p.category && p.category.toLowerCase().includes(category.toLowerCase())
       );
     }
 
-    if (!products || products.length === 0) {
+    if (!products.length) {
       const filterMsg = category ? ` for category "${category}"` : '';
       await interaction.editReply(`❌ No merch found${filterMsg}.`);
       return;
     }
 
-    const embeds = products.map(p => {
-      const embed = new EmbedBuilder()
-        .setTitle(p.name)
-        .setDescription((p.description || 'No description.').substring(0, 4096))
-        .addFields(
-          {
-            name: 'Price',
-            value: `$${(p.price || 0).toFixed(2)}`,
-            inline: true
-          },
-          {
-            name: 'Category',
-            value: p.category || 'N/A',
-            inline: true
-          }
-        )
-        .setColor(0xffa500)
-        .setTimestamp()
-        .setFooter({ text: 'Void eSports Store • Live data' });
-
-      if (p.link) {
-        embed.setURL(p.link);
-      }
-      if (p.image) {
-        embed.setThumbnail(p.image);
-      }
-      return embed;
+    const lines = products.map(p => {
+      const price = typeof p.price === 'number' ? `$${p.price.toFixed(2)}` : (p.price != null ? `$${Number(p.price).toFixed(2)}` : '—');
+      const cat = (p.category || '—').substring(0, 20);
+      return `**${(p.name || 'Unnamed').substring(0, 40)}**\n└ ${price}  •  ${cat}`;
     });
+    const description = lines.join('\n\n').substring(0, 4090) + (lines.join('').length > 4090 ? '…' : '');
 
-    await interaction.editReply({ embeds });
+    const embed = new EmbedBuilder()
+      .setTitle('🛒 Void eSports Store')
+      .setDescription(description)
+      .setColor(0xffa500)
+      .setTimestamp()
+      .setFooter({ text: `${products.length} item(s) • Live from website` });
+
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('merch error:', error);
     await interaction.editReply('❌ Failed to fetch merch. Make sure Firebase is configured correctly.');

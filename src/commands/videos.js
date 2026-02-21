@@ -15,8 +15,6 @@ const videosCommand = new SlashCommandBuilder()
 
 async function handleVideos(interaction) {
   const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
-  await interaction.deferReply();
-
   try {
     if (!youtubeApiKey || !youtubeChannelId) {
       await interaction.editReply('❌ YouTube API not configured. Videos cannot be fetched.');

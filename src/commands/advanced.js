@@ -33,8 +33,6 @@ function formatUptime(ms) {
 }
 
 async function handleUptime(interaction) {
-  await interaction.deferReply();
-
   const uptime = Date.now() - botStartTime;
   const processUptime = process.uptime();
 
@@ -53,8 +51,6 @@ async function handleUptime(interaction) {
 }
 
 async function handleStatus(interaction) {
-  await interaction.deferReply();
-
   const info = firebaseInfo();
   const statusChecks = {
     discord: '✅ Connected',
@@ -100,8 +96,6 @@ async function handleStatus(interaction) {
 }
 
 async function handleStats(interaction) {
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     
@@ -114,32 +108,32 @@ async function handleStats(interaction) {
       db.collection('ambassadors').get()
     ]);
 
-    const teams = teamsSnapshot.docs;
-    const products = productsSnapshot.docs;
-    const news = newsSnapshot.docs;
-    const placements = placementsSnapshot.docs;
-    const ambassadors = ambassadorsSnapshot.docs;
+    const teams = teamsSnapshot.docs || [];
+    const products = productsSnapshot.docs || [];
+    const news = newsSnapshot.docs || [];
+    const placements = placementsSnapshot.docs || [];
+    const ambassadors = ambassadorsSnapshot.docs || [];
 
-    // Count total pros
     let totalPros = 0;
     teams.forEach(teamDoc => {
-      const team = teamDoc.data();
-      if (team.players && Array.isArray(team.players)) {
+      const team = teamDoc.data ? teamDoc.data() : teamDoc;
+      if (team && team.players && Array.isArray(team.players)) {
         totalPros += team.players.length;
       }
     });
-    totalPros += ambassadors.size;
+    totalPros += ambassadors.length;
 
+    const safe = (n) => (n != null ? String(n) : '0');
     const embed = new EmbedBuilder()
       .setTitle('📊 Void eSports Statistics')
-      .setDescription('Comprehensive statistics from the Void website')
+      .setDescription('Live counts from the Void website. Site visits and purchase stats would require the site to store them in Firebase.')
       .addFields(
-        { name: 'Teams', value: teams.size.toString(), inline: true },
-        { name: 'Total Pros', value: totalPros.toString(), inline: true },
-        { name: 'Ambassadors', value: ambassadors.size.toString(), inline: true },
-        { name: 'Products', value: products.size.toString(), inline: true },
-        { name: 'News Articles', value: news.size.toString(), inline: true },
-        { name: 'Placements', value: placements.size.toString(), inline: true }
+        { name: 'Teams', value: safe(teams.length), inline: true },
+        { name: 'Total Pros', value: safe(totalPros), inline: true },
+        { name: 'Ambassadors', value: safe(ambassadors.length), inline: true },
+        { name: 'Products (Merch)', value: safe(products.length), inline: true },
+        { name: 'News Articles', value: safe(news.length), inline: true },
+        { name: 'Placements', value: safe(placements.length), inline: true }
       )
       .setColor(0x8a2be2)
       .setTimestamp()
@@ -153,10 +147,8 @@ async function handleStats(interaction) {
 }
 
 async function handlePing(interaction) {
-  const sent = await interaction.reply({ content: '🏓 Pinging...', fetchReply: true });
-  const roundtrip = sent.createdTimestamp - interaction.createdTimestamp;
+  const roundtrip = Date.now() - interaction.createdTimestamp;
   const wsPing = interaction.client.ws.ping;
-
   const embed = new EmbedBuilder()
     .setTitle('🏓 Pong!')
     .addFields(
@@ -166,8 +158,7 @@ async function handlePing(interaction) {
     )
     .setColor(0x00ff00)
     .setTimestamp();
-
-  await interaction.editReply({ embeds: [embed] });
+  await interaction.editReply({ content: null, embeds: [embed] });
 }
 
 module.exports = {

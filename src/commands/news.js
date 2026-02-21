@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const newsCommand = new SlashCommandBuilder()
   .setName('news')
@@ -15,8 +16,6 @@ const newsCommand = new SlashCommandBuilder()
 
 async function handleNews(interaction) {
   const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
-  await interaction.deferReply();
-
   try {
     const db = getFirestoreInstance();
     const newsSnapshot = await db.collection('newsArticles')
@@ -46,10 +45,7 @@ async function handleNews(interaction) {
         embed.addFields({ name: 'Event Date', value: new Date(a.eventDate).toLocaleDateString(), inline: true });
       }
 
-      if (a.image) {
-        embed.setThumbnail(a.image);
-      }
-
+      setThumbnailIfValid(embed, a.image);
       return embed;
     });
 

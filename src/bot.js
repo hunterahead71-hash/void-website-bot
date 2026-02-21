@@ -13,10 +13,18 @@ const {
   handleProsTotal,
   handleProsList,
   handleProInfo,
+  handleListPros,
   prosTotalCommand,
   prosListCommand,
-  proInfoCommand
+  proInfoCommand,
+  listProsCommand
 } = require('./commands/pros');
+const {
+  handleAddPro,
+  handleAddMerch,
+  addProCommand,
+  addMerchCommand
+} = require('./commands/admin');
 const {
   handleTeams,
   handleTeamInfo,
@@ -65,6 +73,7 @@ async function registerCommands() {
     prosTotalCommand,
     prosListCommand,
     proInfoCommand,
+    listProsCommand,
     teamsCommand,
     teamInfoCommand,
     merchCommand,
@@ -74,7 +83,9 @@ async function registerCommands() {
     uptimeCommand,
     statusCommand,
     statsCommand,
-    pingCommand
+    pingCommand,
+    addProCommand,
+    addMerchCommand
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(discordToken);
@@ -134,6 +145,9 @@ client.on(Events.InteractionCreate, async interaction => {
   const startTime = Date.now();
   const commandName = interaction.commandName;
 
+  // Defer immediately so Discord gets a response within 3 seconds (avoids "Unknown interaction")
+  await interaction.deferReply().catch(() => {});
+
   try {
     switch (commandName) {
       case 'pros_total':
@@ -144,6 +158,9 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'pro_info':
         await handleProInfo(interaction);
+        break;
+      case 'list_pros':
+        await handleListPros(interaction);
         break;
       case 'teams':
         await handleTeams(interaction);
@@ -175,8 +192,14 @@ client.on(Events.InteractionCreate, async interaction => {
       case 'ping':
         await handlePing(interaction);
         break;
+      case 'add_pro':
+        await handleAddPro(interaction);
+        break;
+      case 'add_merch':
+        await handleAddMerch(interaction);
+        break;
       default:
-        await interaction.reply({ content: 'Unknown command.', ephemeral: true });
+        await interaction.editReply({ content: 'Unknown command.' }).catch(() => interaction.reply({ content: 'Unknown command.', flags: 64 }).catch(() => {}));
     }
     const duration = Date.now() - startTime;
     console.log(`✅ Command "${commandName}" executed in ${duration}ms`);
@@ -186,9 +209,9 @@ client.on(Events.InteractionCreate, async interaction => {
     
     const errorMessage = 'There was an error executing that command. Please try again later.';
     if (interaction.deferred || interaction.replied) {
-      await interaction.followUp({ content: errorMessage, ephemeral: true }).catch(() => {});
+      await interaction.followUp({ content: errorMessage, flags: 64 }).catch(() => {});
     } else {
-      await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => {});
+      await interaction.reply({ content: errorMessage, flags: 64 }).catch(() => {});
     }
   }
 });
