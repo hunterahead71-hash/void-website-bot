@@ -26,19 +26,38 @@ async function handleGames(interaction) {
       db.collection('placements').get(),
       collectAllPros(db, null)
     ]);
+    
     const games = new Set();
-    allPros.forEach(p => { if (p.game) games.add(p.game); });
+    
+    // Add games from pros
+    allPros.forEach(p => { 
+      if (p.game) {
+        // Normalize game names
+        let gameName = p.game.trim();
+        if (gameName.toLowerCase() === 'fortnite') gameName = 'Fortnite';
+        games.add(gameName);
+      }
+    });
+    
+    // Add games from placements
     (placementsSnap.docs || []).forEach(doc => {
       const p = convertFirestoreData(doc);
-      if (p.game) games.add(p.game);
+      if (p.game) {
+        let gameName = p.game.trim();
+        if (gameName.toLowerCase() === 'fortnite') gameName = 'Fortnite';
+        games.add(gameName);
+      }
     });
+    
     const list = [...games].sort((a, b) => a.localeCompare(b));
+    
     const embed = new EmbedBuilder()
       .setTitle('🎮 Games (live from website)')
       .setDescription(list.length ? list.map(g => `• **${g}**`).join('\n') : 'No games found.')
       .setColor(0x1e90ff)
       .setTimestamp()
       .setFooter({ text: `${list.length} game(s)` });
+    
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('games error:', error);
@@ -99,7 +118,7 @@ async function handleTopPlacements(interaction) {
 async function handleRandomPro(interaction) {
   try {
     const db = getFirestoreInstance();
-    const allPros = await collectAllPros(db, null);
+    const allPros = await collectAllPros(db, 'fortnite');
     if (!allPros.length) {
       await interaction.editReply('❌ No pros (Fortnite players) in the database.');
       return;
@@ -108,8 +127,8 @@ async function handleRandomPro(interaction) {
     const embed = new EmbedBuilder()
       .setTitle(`🎲 Random Pro: ${pro.name}`)
       .addFields(
-        { name: 'Game', value: pro.game || 'N/A', inline: true },
-        { name: 'Role', value: pro.role || 'N/A', inline: true },
+        { name: 'Game', value: pro.game || 'Fortnite', inline: true },
+        { name: 'Role', value: pro.role || 'Pro Player', inline: true },
         { name: 'Team', value: pro.teamName || 'N/A', inline: true }
       )
       .setColor(0x8a2be2)
