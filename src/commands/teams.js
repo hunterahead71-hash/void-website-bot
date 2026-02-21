@@ -1,10 +1,11 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 const { setThumbnailIfValid } = require('../utils/discordEmbeds');
+const { buildPaginationRow } = require('../utils/pagination');
 
 const teamsCommand = new SlashCommandBuilder()
   .setName('teams')
-  .setDescription('List all teams with basic info.');
+  .setDescription('List all teams. Use arrows to scroll pages.');
 
 const teamInfoCommand = new SlashCommandBuilder()
   .setName('team_info')
@@ -16,37 +17,55 @@ const teamInfoCommand = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-async function handleTeams(interaction) {
-  try {
-    const db = getFirestoreInstance();
-    const teamsSnapshot = await db.collection('teams').get();
-    const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
+const PER_PAGE = 10;
 
-    if (!teams || teams.length === 0) {
-      await interaction.editReply('❌ No teams found in the database.');
+async function buildTeamsPage(interaction, page) {
+  const db = getFirestoreInstance();
+  const teamsSnapshot = await db.collection('teams').get();
+  const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc)).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (!teams.length) {
+    return { content: '❌ No teams found.', embeds: [], components: [] };
+  }
+  const totalPages = Math.ceil(teams.length / PER_PAGE);
+  const p = Math.max(0, Math.min(page, totalPages - 1));
+  const slice = teams.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
+  const lines = slice.map(t => {
+    const game = t.players?.length ? (t.players[0].game || '—') : '—';
+    const count = t.players ? t.players.length : 0;
+    return `• **${t.name}** — ${game} · ${count} player${count !== 1 ? 's' : ''}`;
+  });
+  const embed = new EmbedBuilder()
+    .setTitle('🏆 Void eSports Teams')
+    .setDescription(lines.join('\n'))
+    .setColor(0x00bfff)
+    .setFooter({ text: `Page ${p + 1}/${totalPages} · ${teams.length} teams · Live from website` })
+    .setTimestamp();
+  const components = [];
+  const pagRow = buildPaginationRow('teams', p, totalPages, '');
+  if (pagRow) components.push(pagRow);
+  return { embeds: [embed], components };
+}
+
+async function handleTeams(interaction, page = 0) {
+  try {
+    const payload = await buildTeamsPage(interaction, page);
+    if (payload.content) {
+      await interaction.editReply(payload).catch(() => {});
       return;
     }
-
-    // Sort by name
-    teams.sort((a, b) => a.name.localeCompare(b.name));
-
-    const lines = teams.map(t => {
-      const game = t.players && t.players.length > 0 ? t.players[0].game || 'Game N/A' : 'Game N/A';
-      const playerCount = t.players ? t.players.length : 0;
-      return `• **${t.name}** – ${game} – ${playerCount} player${playerCount !== 1 ? 's' : ''}`;
-    });
-
-    const embed = new EmbedBuilder()
-      .setTitle('🏆 Void eSports Teams')
-      .setDescription(lines.join('\n'))
-      .setColor(0x00bfff)
-      .setTimestamp()
-      .setFooter({ text: `Total: ${teams.length} teams • Live data from Void Website` });
-
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply(payload).catch(() => {});
   } catch (error) {
     console.error('teams error:', error);
-    await interaction.editReply('❌ Failed to fetch teams. Make sure Firebase is configured correctly.');
+    await interaction.editReply('❌ Failed to fetch teams.').catch(() => {});
+  }
+}
+
+async function handleTeamsPaginated(interaction, page) {
+  try {
+    const payload = await buildTeamsPage(interaction, page);
+    await interaction.update(payload).catch(() => {});
+  } catch (error) {
+    await interaction.update({ content: '❌ Error.', embeds: [], components: [] }).catch(() => {});
   }
 }
 
@@ -56,58 +75,36 @@ async function handleTeamInfo(interaction) {
     const db = getFirestoreInstance();
     const teamsSnapshot = await db.collection('teams').get();
     const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
-
-    // Find team (case-insensitive partial match)
-    const team = teams.find(t => 
-      t.name && t.name.toLowerCase().includes(name.toLowerCase())
-    );
-
+    const team = teams.find(t => t.name && t.name.toLowerCase().includes(name.toLowerCase()));
     if (!team) {
-      await interaction.editReply(`❌ Team **${name}** not found. Try using \`/teams\` to see all available teams.`);
+      await interaction.editReply(`❌ Team **${name}** not found. Use \`/teams\` to list all.`);
       return;
     }
-
     const embed = new EmbedBuilder()
-      .setTitle(team.name)
-      .setDescription(team.description || 'No description provided.')
+      .setTitle(`🏆 ${team.name}`)
+      .setDescription((team.description || 'No description.').substring(0, 4096))
       .setColor(0x00bfff)
       .setTimestamp()
-      .setFooter({ text: 'Live data from Void Website' });
-
-    // Add achievements if available
-    if (team.achievements && Array.isArray(team.achievements) && team.achievements.length) {
-      const achievementsText = team.achievements.slice(0, 10).join('\n');
+      .setFooter({ text: 'Live from Void Website' });
+    if (team.achievements?.length) {
       embed.addFields({
-        name: 'Achievements',
-        value: achievementsText.length > 1024 ? achievementsText.substring(0, 1021) + '...' : achievementsText
+        name: '🏆 Achievements',
+        value: team.achievements.slice(0, 10).join('\n').substring(0, 1024)
       });
     }
-
-    // Add roster
-    if (team.players && Array.isArray(team.players) && team.players.length) {
-      const rosterLines = team.players
-        .map(p => `• **${p.name}** – ${p.role || 'Role N/A'} (${p.game || 'Game N/A'})`)
-        .join('\n');
-      
-      embed.addFields({ 
-        name: `Roster (${team.players.length})`, 
-        value: rosterLines.length > 1024 ? rosterLines.substring(0, 1021) + '...' : rosterLines 
-      });
-
-      // Determine primary game from players
+    if (team.players?.length) {
+      const roster = team.players.map(p => `• **${p.name}** — ${p.role || '—'} (${p.game || '—'})`).join('\n');
+      embed.addFields({ name: `Roster (${team.players.length})`, value: roster.substring(0, 1024) });
       const games = [...new Set(team.players.map(p => p.game).filter(Boolean))];
-      if (games.length > 0) {
-        embed.addFields({ name: 'Games', value: games.join(', '), inline: true });
-      }
+      if (games.length) embed.addFields({ name: 'Games', value: games.join(', '), inline: true });
     } else {
-      embed.addFields({ name: 'Roster', value: 'No players found for this team.' });
+      embed.addFields({ name: 'Roster', value: 'No players listed.' });
     }
-
-    setThumbnailIfValid(embed, team.image);
+    setThumbnailIfValid(embed, team.image || team.logo);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('team_info error:', error);
-    await interaction.editReply('❌ Failed to fetch team information. Make sure Firebase is configured correctly.');
+    await interaction.editReply('❌ Failed to fetch team info.');
   }
 }
 
@@ -115,5 +112,6 @@ module.exports = {
   teamsCommand,
   teamInfoCommand,
   handleTeams,
+  handleTeamsPaginated,
   handleTeamInfo
 };

@@ -29,7 +29,6 @@ const {
   topPlacementsCommand,
   randomProCommand
 } = require('./commands/liveCommands');
-const { mgmtInfoCommand } = require('./commands/mgmt');
 
 const commands = [
   prosTotalCommand,
@@ -51,8 +50,7 @@ const commands = [
   gamesCommand,
   latestCommand,
   topPlacementsCommand,
-  randomProCommand,
-  mgmtInfoCommand
+  randomProCommand
 ].map(c => c.toJSON());
 
 async function registerCommands() {

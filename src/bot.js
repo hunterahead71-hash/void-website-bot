@@ -52,7 +52,17 @@ const {
   handleTopPlacements,
   handleRandomPro
 } = require('./commands/liveCommands');
-const { mgmtInfoCommand, handleMgmtInfo } = require('./commands/mgmt');
+const { parsePaginationCustomId } = require('./utils/pagination');
+const {
+  handleListProsPaginated,
+  handleProsListPaginated,
+  replyWithProDetail
+} = require('./commands/pros');
+const { handleMerchPaginated } = require('./commands/merch');
+const { handleTeamsPaginated } = require('./commands/teams');
+const { handleNewsPaginated } = require('./commands/news');
+const { handlePlacementsPaginated } = require('./commands/placements');
+const { handleVideosPaginated } = require('./commands/videos');
 
 // Create HTTP server for Render health checks
 const PORT = process.env.PORT || 3000;
@@ -97,8 +107,7 @@ async function registerCommands() {
     gamesCommand,
     latestCommand,
     topPlacementsCommand,
-    randomProCommand,
-    mgmtInfoCommand
+    randomProCommand
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(discordToken);
@@ -153,9 +162,60 @@ client.on(Events.Warn, warning => {
 });
 
 client.on(Events.InteractionCreate, async interaction => {
+  const startTime = Date.now();
+
+  // Button: pagination or back
+  if (interaction.isButton()) {
+    const id = interaction.customId || '';
+    try {
+      if (id.startsWith('pag:')) {
+        const { cmd, page, extra } = parsePaginationCustomId(id);
+        if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
+        if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
+        if (cmd === 'merch') return await handleMerchPaginated(interaction, page, extra);
+        if (cmd === 'teams') return await handleTeamsPaginated(interaction, page, extra);
+        if (cmd === 'news') return await handleNewsPaginated(interaction, page, extra);
+        if (cmd === 'placements') return await handlePlacementsPaginated(interaction, page, extra);
+        if (cmd === 'videos') return await handleVideosPaginated(interaction, page, extra);
+      }
+      if (id.startsWith('back:')) {
+        const parts = id.slice(5).split(':');
+        const cmd = parts[0];
+        const page = parseInt(parts[1], 10) || 0;
+        const extra = (parts[2] || '').replace(/_/g, ' ');
+        if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
+        if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
+      }
+    } catch (err) {
+      console.error('Button handler error:', err);
+      await interaction.update({ content: '❌ Something went wrong.', embeds: [], components: [] }).catch(() => {});
+    }
+    return;
+  }
+
+  // Select menu: pro detail from list
+  if (interaction.isStringSelectMenu()) {
+    const id = interaction.customId || '';
+    if (id.startsWith('pro_sel:')) {
+      try {
+        const parts = id.slice(8).split(':');
+        const cmd = parts[0];
+        const page = parseInt(parts[1], 10) || 0;
+        const extra = (parts[2] || '').replace(/_/g, ' ');
+        const proName = interaction.values?.[0];
+        if (proName) {
+          await replyWithProDetail(interaction, proName, { cmd, page, extra });
+        }
+      } catch (err) {
+        console.error('Select menu error:', err);
+        await interaction.update({ content: '❌ Failed to load profile.', embeds: [], components: [] }).catch(() => {});
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
-  const startTime = Date.now();
   const commandName = interaction.commandName;
 
   // Defer immediately so Discord gets a response within 3 seconds (avoids "Unknown interaction")
@@ -222,9 +282,6 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'random_pro':
         await handleRandomPro(interaction);
-        break;
-      case 'mgmt_info':
-        await handleMgmtInfo(interaction);
         break;
       default:
         await interaction.editReply({ content: 'Unknown command.' }).catch(() => interaction.reply({ content: 'Unknown command.', flags: 64 }).catch(() => {}));
