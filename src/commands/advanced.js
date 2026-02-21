@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getFirestoreInstance, firebaseInfo } = require('../firebaseClient');
+const { getFirestoreInstance, firebaseInfo, convertFirestoreData } = require('../firebaseClient');
+const { adminRoleId } = require('../config');
 
 const uptimeCommand = new SlashCommandBuilder()
   .setName('uptime')
@@ -16,6 +17,10 @@ const statsCommand = new SlashCommandBuilder()
 const pingCommand = new SlashCommandBuilder()
   .setName('ping')
   .setDescription('Check bot latency and response time.');
+
+const advancedStatsCommand = new SlashCommandBuilder()
+  .setName('advanced_stats')
+  .setDescription('Detailed stats from the website (admin role only).');
 
 // Store bot start time
 const botStartTime = Date.now();
@@ -161,13 +166,95 @@ async function handlePing(interaction) {
   await interaction.editReply({ content: null, embeds: [embed] });
 }
 
+async function handleAdvancedStats(interaction) {
+  if (adminRoleId) {
+    const member = interaction.member;
+    if (!member || !member.roles?.cache?.has(adminRoleId)) {
+      await interaction.editReply({ content: '❌ This command is restricted to the admin role. Ask a server admin to add your role to `ADMIN_ROLE_ID` in Render if you should have access.', flags: 64 });
+      return;
+    }
+  } else {
+    await interaction.editReply({ content: '❌ Advanced stats is not configured. Set `ADMIN_ROLE_ID` in Render to restrict this command to a role.' });
+    return;
+  }
+
+  try {
+    const db = getFirestoreInstance();
+    const [teamsSnap, productsSnap, newsSnap, placementsSnap, ambassadorsSnap] = await Promise.all([
+      db.collection('teams').get(),
+      db.collection('products').get(),
+      db.collection('newsArticles').get(),
+      db.collection('placements').get(),
+      db.collection('ambassadors').get()
+    ]);
+
+    const teams = (teamsSnap.docs || []).map(doc => convertFirestoreData(doc));
+    const products = (productsSnap.docs || []).map(doc => convertFirestoreData(doc));
+    const news = (newsSnap.docs || []).map(doc => convertFirestoreData(doc));
+    const placements = (placementsSnap.docs || []).map(doc => convertFirestoreData(doc));
+    const ambassadors = (ambassadorsSnap.docs || []).map(doc => convertFirestoreData(doc));
+
+    let totalTeamPros = 0;
+    const gameCounts = {};
+    teams.forEach(team => {
+      if (team.players && Array.isArray(team.players)) {
+        totalTeamPros += team.players.length;
+        team.players.forEach(p => {
+          const g = p.game || 'Unknown';
+          gameCounts[g] = (gameCounts[g] || 0) + 1;
+        });
+      }
+    });
+    ambassadors.forEach(a => {
+      const g = a.game || 'Unknown';
+      gameCounts[g] = (gameCounts[g] || 0) + 1;
+    });
+
+    const gameBreakdown = Object.entries(gameCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([game, count]) => `${game}: **${count}**`)
+      .join('\n') || 'None';
+
+    const totalMerchValue = products.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
+    const recentNews = news
+      .filter(n => n.date)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3);
+    const recentNewsText = recentNews.map(n => `• ${n.title || 'Untitled'}`).join('\n') || 'None';
+
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Advanced Stats (live from website)')
+      .setDescription('Detailed breakdown — admin only.')
+      .addFields(
+        { name: 'Teams', value: String(teams.length), inline: true },
+        { name: 'Team pros', value: String(totalTeamPros), inline: true },
+        { name: 'Ambassadors', value: String(ambassadors.length), inline: true },
+        { name: 'Pros by game', value: gameBreakdown.substring(0, 1024), inline: false },
+        { name: 'Products (merch)', value: String(products.length), inline: true },
+        { name: 'Est. merch value', value: totalMerchValue ? `$${totalMerchValue.toFixed(0)}` : 'N/A', inline: true },
+        { name: 'Placements', value: String(placements.length), inline: true },
+        { name: 'Recent news', value: recentNewsText.substring(0, 1024), inline: false }
+      )
+      .setColor(0x8a2be2)
+      .setTimestamp()
+      .setFooter({ text: 'Admin only • Live from Void website' });
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    console.error('advanced_stats error:', error);
+    await interaction.editReply('❌ Failed to fetch advanced stats.');
+  }
+}
+
 module.exports = {
   uptimeCommand,
   statusCommand,
   statsCommand,
   pingCommand,
+  advancedStatsCommand,
   handleUptime,
   handleStatus,
   handleStats,
-  handlePing
+  handlePing,
+  handleAdvancedStats
 };

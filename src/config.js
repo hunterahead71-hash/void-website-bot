@@ -52,6 +52,8 @@ module.exports = {
   discordToken: required('DISCORD_TOKEN'),
   discordClientId: required('DISCORD_CLIENT_ID'),
   discordGuildId: process.env.DISCORD_GUILD_ID || null,
+  /** Role ID that can use /advanced_stats. Set in Render as ADMIN_ROLE_ID. */
+  adminRoleId: process.env.ADMIN_ROLE_ID || null,
 
   firebaseConfig: getFirebaseConfig(),
   firebaseServiceAccount: optionalJson('FIREBASE_SERVICE_ACCOUNT'),

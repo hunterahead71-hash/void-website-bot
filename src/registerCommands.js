@@ -8,10 +8,6 @@ const {
   listProsCommand
 } = require('./commands/pros');
 const {
-  addProCommand,
-  addMerchCommand
-} = require('./commands/admin');
-const {
   teamsCommand,
   teamInfoCommand
 } = require('./commands/teams');
@@ -23,8 +19,16 @@ const {
   uptimeCommand,
   statusCommand,
   statsCommand,
-  pingCommand
+  pingCommand,
+  advancedStatsCommand
 } = require('./commands/advanced');
+const { helpCommand } = require('./commands/help');
+const {
+  gamesCommand,
+  latestCommand,
+  topPlacementsCommand,
+  randomProCommand
+} = require('./commands/liveCommands');
 
 const commands = [
   prosTotalCommand,
@@ -41,8 +45,12 @@ const commands = [
   statusCommand,
   statsCommand,
   pingCommand,
-  addProCommand,
-  addMerchCommand
+  advancedStatsCommand,
+  helpCommand,
+  gamesCommand,
+  latestCommand,
+  topPlacementsCommand,
+  randomProCommand
 ].map(c => c.toJSON());
 
 async function registerCommands() {

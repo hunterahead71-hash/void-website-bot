@@ -20,12 +20,6 @@ const {
   listProsCommand
 } = require('./commands/pros');
 const {
-  handleAddPro,
-  handleAddMerch,
-  addProCommand,
-  addMerchCommand
-} = require('./commands/admin');
-const {
   handleTeams,
   handleTeamInfo,
   teamsCommand,
@@ -40,11 +34,24 @@ const {
   handleStatus,
   handleStats,
   handlePing,
+  handleAdvancedStats,
   uptimeCommand,
   statusCommand,
   statsCommand,
-  pingCommand
+  pingCommand,
+  advancedStatsCommand
 } = require('./commands/advanced');
+const { helpCommand, handleHelp } = require('./commands/help');
+const {
+  gamesCommand,
+  latestCommand,
+  topPlacementsCommand,
+  randomProCommand,
+  handleGames,
+  handleLatest,
+  handleTopPlacements,
+  handleRandomPro
+} = require('./commands/liveCommands');
 
 // Create HTTP server for Render health checks
 const PORT = process.env.PORT || 3000;
@@ -84,8 +91,12 @@ async function registerCommands() {
     statusCommand,
     statsCommand,
     pingCommand,
-    addProCommand,
-    addMerchCommand
+    advancedStatsCommand,
+    helpCommand,
+    gamesCommand,
+    latestCommand,
+    topPlacementsCommand,
+    randomProCommand
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(discordToken);
@@ -192,11 +203,23 @@ client.on(Events.InteractionCreate, async interaction => {
       case 'ping':
         await handlePing(interaction);
         break;
-      case 'add_pro':
-        await handleAddPro(interaction);
+      case 'advanced_stats':
+        await handleAdvancedStats(interaction);
         break;
-      case 'add_merch':
-        await handleAddMerch(interaction);
+      case 'help':
+        await handleHelp(interaction);
+        break;
+      case 'games':
+        await handleGames(interaction);
+        break;
+      case 'latest':
+        await handleLatest(interaction);
+        break;
+      case 'top_placements':
+        await handleTopPlacements(interaction);
+        break;
+      case 'random_pro':
+        await handleRandomPro(interaction);
         break;
       default:
         await interaction.editReply({ content: 'Unknown command.' }).catch(() => interaction.reply({ content: 'Unknown command.', flags: 64 }).catch(() => {}));
