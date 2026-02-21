@@ -9,25 +9,19 @@ const {
 } = require('discord.js');
 const { discordToken, discordClientId, discordGuildId } = require('./config');
 
-// Pros Commands
+// Pros Commands (now includes /teams)
 const {
-  handleProsTotal,
+  handleProsTotal, // This is now /teams
   handleProsList,
   handleProInfo,
   handleOpsInfo,
-  prosTotalCommand,
+  prosTotalCommand, // This is now /teams
   prosListCommand,
   proInfoCommand,
   opsInfoCommand
 } = require('./commands/pros');
 
-// Teams Commands
-const {
-  handleTeams,
-  handleTeamInfo,
-  teamsCommand,
-  teamInfoCommand
-} = require('./commands/teams');
+// Teams Commands - REMOVED (team_info.js deleted)
 
 // Other Existing Commands
 const { handleMerch, merchCommand } = require('./commands/merch');
@@ -50,7 +44,7 @@ const {
 } = require('./commands/advanced');
 
 // Help Command
-const { helpCommand, handleHelp } = require('./commands/help');
+const { helpCommand, handleHelp, handleHelpCategory } = require('./commands/help');
 
 // Live Commands
 const {
@@ -64,7 +58,7 @@ const {
   handleRandomPro
 } = require('./commands/liveCommands');
 
-// NEW: Socials Command
+// Socials Command
 const { 
   socialsCommand, 
   handleSocials, 
@@ -74,14 +68,14 @@ const {
   handleInviteBot 
 } = require('./commands/socials');
 
-// NEW: Latest Video Command
+// Latest Video Command
 const { 
   latestVideoCommand, 
   handleLatestVideo, 
   handleRefreshLatest 
 } = require('./commands/latestVideo');
 
-// NEW: Moderation Commands
+// Moderation Commands
 const { 
   kickCommand, 
   banCommand, 
@@ -105,7 +99,6 @@ const {
   replyWithOpsDetail
 } = require('./commands/pros');
 const { handleMerchPaginated } = require('./commands/merch');
-const { handleTeamsPaginated } = require('./commands/teams');
 const { handleNewsPaginated } = require('./commands/news');
 const { handlePlacementsPaginated } = require('./commands/placements');
 const { handleVideosPaginated } = require('./commands/videos');
@@ -134,15 +127,11 @@ server.listen(PORT, () => {
 // Command registration function
 async function registerCommands() {
   const commands = [
-    // Pros Commands
-    prosTotalCommand,
+    // Pros Commands (including /teams)
+    prosTotalCommand, // This is now /teams
     prosListCommand,
     proInfoCommand,
     opsInfoCommand,
-    
-    // Teams Commands
-    teamsCommand,
-    teamInfoCommand,
     
     // Content Commands
     merchCommand,
@@ -164,13 +153,13 @@ async function registerCommands() {
     topPlacementsCommand,
     randomProCommand,
     
-    // NEW: Socials Command
+    // Socials Command
     socialsCommand,
     
-    // NEW: Latest Video Command
+    // Latest Video Command
     latestVideoCommand,
     
-    // NEW: Moderation Commands
+    // Moderation Commands
     kickCommand,
     banCommand,
     timeoutCommand,
@@ -184,14 +173,12 @@ async function registerCommands() {
     console.log('🔄 Started refreshing application (/) commands...');
 
     if (discordGuildId) {
-      // Register to specific guild (instant updates)
       await rest.put(
         Routes.applicationGuildCommands(discordClientId, discordGuildId),
         { body: commands }
       );
       console.log(`✅ Successfully registered ${commands.length} guild commands to server ${discordGuildId}`);
     } else {
-      // Register globally (can take up to 1 hour)
       await rest.put(
         Routes.applicationCommands(discordClientId),
         { body: commands }
@@ -221,7 +208,6 @@ const client = new Client({
 client.once(Events.ClientReady, async c => {
   console.log(`✅ Void Website Bot logged in as ${c.user.tag}`);
   console.log(`📊 Bot is ready in ${c.guilds.cache.size} server(s)`);
-  console.log(`📋 Total commands: ${c.application.commands.cache.size}`);
   
   // Register slash commands automatically
   await registerCommands();
@@ -243,13 +229,25 @@ client.on(Events.InteractionCreate, async interaction => {
     const id = interaction.customId || '';
     
     try {
+      // Help category buttons
+      if (id.startsWith('help_')) {
+        if (id === 'help_all') {
+          const { handleHelp } = require('./commands/help');
+          return await handleHelp(interaction);
+        } else if (id === 'help_support' || id === 'help_invite') {
+          return; // Link buttons handled automatically
+        } else {
+          const category = id.replace('help_', '');
+          return await handleHelpCategory(interaction, category);
+        }
+      }
+      
       // Existing pagination buttons
       if (id.startsWith('pag:')) {
         const { cmd, page, extra } = parsePaginationCustomId(id);
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
         if (cmd === 'merch') return await handleMerchPaginated(interaction, page, extra);
-        if (cmd === 'teams') return await handleTeamsPaginated(interaction, page, extra);
         if (cmd === 'news') return await handleNewsPaginated(interaction, page, extra);
         if (cmd === 'placements') return await handlePlacementsPaginated(interaction, page, extra);
         if (cmd === 'videos') return await handleVideosPaginated(interaction, page, extra);
@@ -265,35 +263,34 @@ client.on(Events.InteractionCreate, async interaction => {
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
       }
       
-      // NEW: Socials pagination
+      // Socials pagination
       if (id.startsWith('socials_prev_') || id.startsWith('socials_next_')) {
         const direction = id.includes('prev') ? 'prev' : 'next';
         return await handleSocialsPaginated(interaction, direction);
       }
       
-      // NEW: Socials copy all links
+      // Socials copy all links
       if (id === 'socials_copy_all') {
         return await handleCopyAllLinks(interaction);
       }
       
-      // NEW: Socials invite bot
+      // Socials invite bot
       if (id === 'socials_invite_bot') {
         return await handleInviteBot(interaction);
       }
       
-      // NEW: Socials copy single link
+      // Socials copy single link
       if (id.startsWith('socials_copy_')) {
         const platform = id.replace('socials_copy_', '');
         return await handleCopySingleLink(interaction, platform);
       }
       
-      // NEW: Latest video refresh
+      // Latest video refresh
       if (id.startsWith('refresh_latest_')) {
-        const platform = id.split('_')[2];
-        return await handleRefreshLatest(interaction, platform);
+        return await handleRefreshLatest(interaction);
       }
       
-      // NEW: Share button (just ephemeral response)
+      // Share button
       if (id.startsWith('share_')) {
         await interaction.reply({ 
           content: '🔗 Share this content with friends!', 
@@ -302,7 +299,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return;
       }
       
-      // NEW: Video pagination
+      // Video pagination
       if (id.startsWith('videos_page_')) {
         const parts = id.split('_');
         const page = parseInt(parts[2], 10);
@@ -311,30 +308,18 @@ client.on(Events.InteractionCreate, async interaction => {
         return await handleVideosPaginated(interaction, page, limit, longformOnly);
       }
       
-      // NEW: Moderation confirmations (these are handled within the command functions)
+      // Moderation confirmations
       if (id.startsWith('confirm_kick_') || 
           id.startsWith('confirm_ban_') || 
           id.startsWith('confirm_timeout_') || 
           id === 'cancel_mod_action') {
-        // These are handled in the moderation command functions
-        // We don't process them here to avoid conflicts
-        return;
+        return; // Handled in moderation commands
       }
       
-      // NEW: View warnings
+      // View warnings
       if (id.startsWith('warnings_view_')) {
         const userId = id.split('_')[2];
         return await handleViewWarnings(interaction, userId);
-      }
-      
-      // NEW: DM warning
-      if (id.startsWith('dm_warning_')) {
-        // This would need implementation - for now just acknowledge
-        await interaction.reply({ 
-          content: '📨 Warning DM feature coming soon!', 
-          ephemeral: true 
-        });
-        return;
       }
       
     } catch (err) {
@@ -352,7 +337,6 @@ client.on(Events.InteractionCreate, async interaction => {
     const id = interaction.customId || '';
     
     try {
-      // Pro selection menu
       if (id.startsWith('pro_sel:')) {
         const parts = id.slice(8).split(':');
         const cmd = parts[0];
@@ -362,9 +346,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (proName) {
           await replyWithProDetail(interaction, proName, { cmd, page, extra });
         }
-      } 
-      // Ops selection menu
-      else if (id.startsWith('ops_sel:')) {
+      } else if (id.startsWith('ops_sel:')) {
         const parts = id.slice(8).split(':');
         const cmd = parts[0];
         const page = parseInt(parts[1], 10) || 0;
@@ -391,8 +373,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
   try {
     switch (commandName) {
-      // Pros Commands
-      case 'pros_total':
+      // Teams & Pros Commands
+      case 'teams': // This is the renamed pros_total
         await handleProsTotal(interaction);
         break;
       case 'pros_list':
@@ -403,14 +385,6 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'ops_info':
         await handleOpsInfo(interaction);
-        break;
-      
-      // Teams Commands
-      case 'teams':
-        await handleTeams(interaction);
-        break;
-      case 'team_info':
-        await handleTeamInfo(interaction);
         break;
       
       // Content Commands
@@ -461,17 +435,17 @@ client.on(Events.InteractionCreate, async interaction => {
         await handleRandomPro(interaction);
         break;
       
-      // NEW: Socials Command
+      // Socials Command
       case 'socials':
         await handleSocials(interaction);
         break;
       
-      // NEW: Latest Video Command
+      // Latest Video Command
       case 'latest-video':
         await handleLatestVideo(interaction);
         break;
       
-      // NEW: Moderation Commands
+      // Moderation Commands
       case 'kick':
         await handleKick(interaction);
         break;
@@ -509,7 +483,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// ==================== GRACEFUL SHUTDOWN ====================
+// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('📴 SIGTERM received, shutting down gracefully...');
   client.destroy();
