@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { youtubeApiKey, youtubeChannelId } = require('../config');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 const { buildPaginationRow } = require('../utils/pagination');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const videosCommand = new SlashCommandBuilder()
   .setName('videos')
@@ -16,69 +17,144 @@ const videosCommand = new SlashCommandBuilder()
 
 const PER_PAGE = 5;
 
-async function fetchYouTubeVideos(maxResults = 10) {
-  if (!youtubeApiKey || !youtubeChannelId) return [];
-  let channelId = youtubeChannelId.trim();
-  let identifierParam = '';
-  if (channelId.startsWith('@')) {
-    identifierParam = `forHandle=${encodeURIComponent(channelId.slice(1))}`;
-  } else if (channelId.startsWith('UC')) {
-    identifierParam = `id=${channelId}`;
-  } else {
-    identifierParam = `forHandle=${encodeURIComponent(channelId)}`;
+async function fetchVideosFromFirebase(limit = 15) {
+  try {
+    const db = getFirestoreInstance();
+    
+    // Try multiple possible collection names that might store videos
+    let videos = [];
+    const possibleCollections = ['videos', 'youtubeVideos', 'media', 'content'];
+    
+    for (const collectionName of possibleCollections) {
+      try {
+        const snap = await db.collection(collectionName)
+          .orderBy('publishedAt', 'desc')
+          .orderBy('createdAt', 'desc')
+          .orderBy('date', 'desc')
+          .limit(limit)
+          .get();
+        
+        if (snap.docs && snap.docs.length > 0) {
+          const collectionVideos = snap.docs.map(doc => {
+            const data = convertFirestoreData(doc);
+            return {
+              title: data.title || data.name || 'Untitled Video',
+              description: data.description || data.summary || '',
+              videoId: data.videoId || data.youtubeId || data.id,
+              url: data.url || data.videoUrl || data.link || (data.videoId ? `https://www.youtube.com/watch?v=${data.videoId}` : null),
+              thumbnail: data.thumbnail || data.thumbnailUrl || data.image || (data.videoId ? `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg` : null),
+              publishedAt: data.publishedAt || data.date || data.createdAt || new Date().toISOString(),
+              platform: data.platform || 'YouTube'
+            };
+          }).filter(v => v.url || v.videoId); // Only keep entries with valid video data
+          
+          videos = [...videos, ...collectionVideos];
+        }
+      } catch (e) {
+        // Collection might not exist, continue to next
+        console.log(`Collection ${collectionName} not found or error:`, e.message);
+      }
+    }
+    
+    // If no videos found in any collection, check if there's a 'newsArticles' collection with videos
+    if (videos.length === 0) {
+      try {
+        const newsSnap = await db.collection('newsArticles')
+          .orderBy('date', 'desc')
+          .limit(limit)
+          .get();
+        
+        if (newsSnap.docs && newsSnap.docs.length > 0) {
+          const newsVideos = newsSnap.docs.map(doc => {
+            const data = convertFirestoreData(doc);
+            // Check if this news article has a video URL
+            const videoUrl = data.youtubeUrl || data.videoUrl || data.videoLink;
+            if (videoUrl) {
+              let videoId = null;
+              if (videoUrl.includes('youtube.com/watch?v=')) {
+                videoId = videoUrl.split('v=')[1]?.split('&')[0];
+              } else if (videoUrl.includes('youtu.be/')) {
+                videoId = videoUrl.split('youtu.be/')[1]?.split('?')[0];
+              }
+              
+              return {
+                title: data.title || 'Video News',
+                description: data.description || data.summary || '',
+                videoId: videoId,
+                url: videoUrl,
+                thumbnail: data.image || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null),
+                publishedAt: data.date || data.createdAt || new Date().toISOString(),
+                platform: 'YouTube'
+              };
+            }
+            return null;
+          }).filter(v => v !== null);
+          
+          videos = [...videos, ...newsVideos];
+        }
+      } catch (e) {
+        console.log('News articles check failed:', e.message);
+      }
+    }
+    
+    // Sort by published date (newest first) and remove duplicates
+    const uniqueVideos = [];
+    const seen = new Set();
+    
+    videos
+      .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
+      .forEach(video => {
+        const key = video.url || video.videoId || video.title;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueVideos.push(video);
+        }
+      });
+    
+    return uniqueVideos.slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching videos from Firebase:', error);
+    return [];
   }
-  const channelRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&${identifierParam}&key=${youtubeApiKey}`
-  );
-  if (!channelRes.ok) return [];
-  const channelData = await channelRes.json();
-  const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  if (!uploadsId) return [];
-  const playlistRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=${Math.min(maxResults, 50)}&key=${youtubeApiKey}`
-  );
-  if (!playlistRes.ok) return [];
-  const playlistData = await playlistRes.json();
-  if (!playlistData.items?.length) return [];
-  return playlistData.items
-    .filter(item => item.snippet?.resourceId?.videoId)
-    .map(item => {
-      const s = item.snippet;
-      return {
-        title: s.title || 'Untitled',
-        description: (s.description || '').substring(0, 500),
-        videoId: s.resourceId.videoId,
-        url: `https://www.youtube.com/watch?v=${s.resourceId.videoId}`,
-        thumbnail: s.thumbnails?.high?.url || s.thumbnails?.medium?.url || `https://img.youtube.com/vi/${s.resourceId.videoId}/hqdefault.jpg`,
-        publishedAt: s.publishedAt
-      };
-    });
 }
 
 function buildVideoEmbeds(items) {
   return items.map(v => {
     const embed = new EmbedBuilder()
-      .setTitle(v.title)
-      .setURL(v.url)
-      .setDescription((v.description || 'No description.').substring(0, 4096))
+      .setTitle(v.title.substring(0, 256))
+      .setURL(v.url || `https://www.youtube.com/watch?v=${v.videoId}`)
+      .setDescription((v.description || 'No description available.').substring(0, 4096))
       .setColor(0xff0000)
-      .setThumbnail(v.thumbnail)
       .setTimestamp(v.publishedAt ? new Date(v.publishedAt) : undefined)
-      .setFooter({ text: 'Void eSports · YouTube' });
+      .setFooter({ text: `Void eSports · ${v.platform || 'YouTube'}` });
+    
+    if (v.thumbnail) {
+      setThumbnailIfValid(embed, v.thumbnail);
+    } else if (v.videoId) {
+      embed.setThumbnail(`https://img.youtube.com/vi/${v.videoId}/hqdefault.jpg`);
+    }
+    
     return embed;
   });
 }
 
 async function handleVideos(interaction, page = 0) {
   const limit = Math.min(Math.max(interaction.options?.getInteger?.('limit') || 15, 1), 25);
+  
   try {
-    const items = await fetchYouTubeVideos(limit);
+    await interaction.editReply({ content: '📹 Fetching videos from website...', embeds: [], components: [] });
+    
+    const items = await fetchVideosFromFirebase(limit);
+    
     if (!items.length) {
-      await interaction.editReply(
-        '❌ No videos found. Set **YOUTUBE_API_KEY** and **YOUTUBE_CHANNEL_ID** in Render (same as the website) to show channel videos.'
-      );
+      await interaction.editReply({
+        content: '❌ No videos found in the website database. Make sure videos are added to Firebase collections: `videos`, `youtubeVideos`, or as video links in `newsArticles`.',
+        embeds: [],
+        components: []
+      });
       return;
     }
+    
     const totalPages = Math.ceil(items.length / PER_PAGE);
     const p = Math.max(0, Math.min(page, totalPages - 1));
     const slice = items.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
@@ -88,10 +164,10 @@ async function handleVideos(interaction, page = 0) {
     const pagRow = buildPaginationRow('videos', p, totalPages, String(limit));
     if (pagRow) components.push(pagRow);
 
-    await interaction.editReply({ embeds, components }).catch(() => {});
+    await interaction.editReply({ content: null, embeds, components }).catch(() => {});
   } catch (error) {
     console.error('videos error:', error);
-    await interaction.editReply('❌ Failed to fetch videos. Check YouTube API config in Render.');
+    await interaction.editReply('❌ Failed to fetch videos from website. Check Firebase connection.');
   }
 }
 
@@ -99,9 +175,9 @@ async function handleVideos(interaction, page = 0) {
 async function handleVideosPaginated(interaction, page, extra) {
   const limit = Math.min(Math.max(parseInt(extra, 10) || 15, 1), 25);
   try {
-    const items = await fetchYouTubeVideos(limit);
+    const items = await fetchVideosFromFirebase(limit);
     if (!items.length) {
-      await interaction.update({ content: '❌ No videos.', embeds: [], components: [] }).catch(() => {});
+      await interaction.update({ content: '❌ No videos found.', embeds: [], components: [] }).catch(() => {});
       return;
     }
     const totalPages = Math.ceil(items.length / PER_PAGE);
@@ -111,7 +187,7 @@ async function handleVideosPaginated(interaction, page, extra) {
     const components = [];
     const pagRow = buildPaginationRow('videos', p, totalPages, String(limit));
     if (pagRow) components.push(pagRow);
-    await interaction.update({ embeds, components }).catch(() => {});
+    await interaction.update({ content: null, embeds, components }).catch(() => {});
   } catch (error) {
     console.error('videos pagination error:', error);
     await interaction.update({ content: '❌ Error loading page.', embeds: [], components: [] }).catch(() => {});
