@@ -74,8 +74,8 @@ function isOperations(person, teamName = '') {
 }
 
 const prosTotalCommand = new SlashCommandBuilder()
-  .setName('pros_total')
-  .setDescription('Show total number of pros (Fortnite players) and operations/management.');
+  .setName('teams')
+  .setDescription('Show Void eSports teams, pros, and operations statistics.');
 
 const prosListCommand = new SlashCommandBuilder()
   .setName('pros_list')
@@ -96,8 +96,6 @@ const proInfoCommand = new SlashCommandBuilder()
       .setDescription('Username as per the pro list')
       .setRequired(true)
   );
-
-// Note: /list_pros command has been removed as it's duplicate of /pros_list
 
 const opsInfoCommand = new SlashCommandBuilder()
   .setName('ops_info')
@@ -132,10 +130,9 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
     .setTitle(`🎮 ${foundPro.name}`)
     .setDescription((foundPro.description || foundPro.bio || 'No bio available.').substring(0, 4096))
     .addFields(
-      { name: 'Team', value: teamName, inline: true },
-      { name: 'Game', value: foundPro.game || 'N/A', inline: true },
-      { name: 'Role', value: foundPro.role || 'N/A', inline: true },
-      { name: 'Type', value: typeValue, inline: true }
+      { name: '🏢 Team', value: teamName, inline: true },
+      { name: '🎯 Game', value: foundPro.game || 'Fortnite', inline: true },
+      { name: '📋 Role', value: foundPro.role || 'Pro Player', inline: true }
     )
     .setColor(0x8a2be2)
     .setTimestamp()
@@ -148,6 +145,7 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
       value: achievementsText.length > 1024 ? achievementsText.substring(0, 1021) + '...' : achievementsText
     });
   }
+  
   if (foundPro.stats && Array.isArray(foundPro.stats) && foundPro.stats.length) {
     const statLines = foundPro.stats
       .slice(0, 10)
@@ -160,6 +158,7 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
       });
     }
   }
+  
   const socials = [];
   const socialLinks = foundPro.socialLinks || {};
   if (socialLinks.twitter) socials.push(`[Twitter](${socialLinks.twitter})`);
@@ -168,6 +167,7 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
   if (socialLinks.instagram) socials.push(`[Instagram](${socialLinks.instagram})`);
   if (socialLinks.tiktok) socials.push(`[TikTok](${socialLinks.tiktok})`);
   if (socials.length) embed.addFields({ name: '🔗 Socials', value: socials.join(' • ') });
+  
   setThumbnailIfValid(embed, foundPro.image);
   return embed;
 }
@@ -179,23 +179,69 @@ async function handleProsTotal(interaction) {
     const allPros = collectAllProsFromData(teams, ambassadors, 'fortnite');
     const allOps = collectAllOpsFromData(teams, ambassadors);
 
+    // Count pros per team
+    const teamBreakdown = [];
+    teams.forEach(team => {
+      if (team.players && Array.isArray(team.players)) {
+        const teamPros = team.players.filter(p => isPro(p) && !isOperations(p, team.name));
+        const teamOps = team.players.filter(p => isOperations(p, team.name));
+        if (teamPros.length > 0 || teamOps.length > 0) {
+          teamBreakdown.push({
+            name: team.name,
+            pros: teamPros.length,
+            ops: teamOps.length
+          });
+        }
+      }
+    });
+
+    // Add ambassadors
+    const ambassadorPros = ambassadors.filter(a => isPro(a) && !isOperations(a));
+    if (ambassadorPros.length > 0) {
+      teamBreakdown.push({
+        name: 'Ambassadors',
+        pros: ambassadorPros.length,
+        ops: 0
+      });
+    }
+
+    // Sort teams by name
+    teamBreakdown.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Create team breakdown text
+    const teamList = teamBreakdown.map(t => 
+      `• **${t.name}** — ${t.pros} pro${t.pros !== 1 ? 's' : ''}${t.ops > 0 ? `, ${t.ops} op${t.ops !== 1 ? 's' : ''}` : ''}`
+    ).join('\n');
+
     const embed = new EmbedBuilder()
-      .setTitle('📊 Void eSports — Pros & Operations')
-      .setDescription(
-        `**Fortnite Pros:** ${allPros.length}\n**Operations/Management:** ${allOps.length}\n**Teams:** ${teams.length}`
+      .setTitle('📊 Void eSports — Team Statistics')
+      .setDescription('**Live counts from the Void website**')
+      .addFields(
+        { 
+          name: '📈 Overview', 
+          value: `**Total Teams:** ${teams.length}\n**Total Pros:** ${allPros.length}\n**Total Operations:** ${allOps.length}`, 
+          inline: false 
+        },
+        { 
+          name: '📋 Team Breakdown', 
+          value: teamList || 'No teams with players found', 
+          inline: false 
+        }
       )
       .setColor(0x8a2be2)
       .setTimestamp()
-      .setFooter({ text: 'Live from Void Website' });
+      .setFooter({ text: 'Live from Void Website · /pros_list to see all pros' });
+    
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    console.error('pros_total error:', error);
-    await interaction.editReply('❌ Failed to fetch pros data.');
+    console.error('teams error:', error);
+    await interaction.editReply('❌ Failed to fetch teams data.');
   }
 }
 
 function collectAllProsFromData(teams, ambassadors, gameFilter) {
   const allPros = [];
+  const seen = new Set(); // Track by name to avoid duplicates
   
   // Collect from teams
   (teams || []).forEach((team) => {
@@ -203,16 +249,19 @@ function collectAllProsFromData(teams, ambassadors, gameFilter) {
       team.players.forEach((player) => {
         const p = player && typeof player === 'object' ? { ...player } : player;
         if (!isPro(p)) return;
-        
-        // Skip if they're actually operations
         if (isOperations(p, team.name)) return;
         
-        if (!gameFilter || p.game && p.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+        // Create unique key
+        const key = `${p.name}-${team.name}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        
+        if (!gameFilter || (p.game && p.game.toLowerCase().includes(gameFilter.toLowerCase()))) {
           allPros.push({ 
             ...p, 
             teamName: team.name, 
             source: 'team',
-            game: p.game || 'Fortnite' // Default to Fortnite if not specified
+            game: p.game || 'Fortnite'
           });
         }
       });
@@ -224,7 +273,11 @@ function collectAllProsFromData(teams, ambassadors, gameFilter) {
     if (!isPro(ambassador)) return;
     if (isOperations(ambassador)) return;
     
-    if (!gameFilter || ambassador.game && ambassador.game.toLowerCase().includes(gameFilter.toLowerCase())) {
+    const key = `${ambassador.name}-ambassador`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    
+    if (!gameFilter || (ambassador.game && ambassador.game.toLowerCase().includes(gameFilter.toLowerCase()))) {
       allPros.push({
         name: ambassador.name,
         role: ambassador.role,
@@ -238,21 +291,12 @@ function collectAllProsFromData(teams, ambassadors, gameFilter) {
     }
   });
   
-  // Remove duplicates by name
-  const uniquePros = [];
-  const seen = new Set();
-  allPros.forEach(pro => {
-    if (!seen.has(pro.name)) {
-      seen.add(pro.name);
-      uniquePros.push(pro);
-    }
-  });
-  
-  return uniquePros.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return allPros.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
 function collectAllOpsFromData(teams, ambassadors) {
   const allOps = [];
+  const seen = new Set();
   
   // Collect from teams
   (teams || []).forEach((team) => {
@@ -260,6 +304,11 @@ function collectAllOpsFromData(teams, ambassadors) {
       team.players.forEach((player) => {
         const p = player && typeof player === 'object' ? { ...player } : player;
         if (!isOperations(p, team.name)) return;
+        
+        const key = `${p.name}-${team.name}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        
         allOps.push({ ...p, teamName: team.name, source: 'team' });
       });
     }
@@ -268,6 +317,11 @@ function collectAllOpsFromData(teams, ambassadors) {
   // Collect from ambassadors
   (ambassadors || []).forEach((ambassador) => {
     if (!isOperations(ambassador)) return;
+    
+    const key = `${ambassador.name}-ambassador`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    
     allOps.push({
       name: ambassador.name,
       role: ambassador.role,
@@ -280,17 +334,7 @@ function collectAllOpsFromData(teams, ambassadors) {
     });
   });
   
-  // Remove duplicates by name
-  const uniqueOps = [];
-  const seen = new Set();
-  allOps.forEach(op => {
-    if (!seen.has(op.name)) {
-      seen.add(op.name);
-      uniqueOps.push(op);
-    }
-  });
-  
-  return uniqueOps.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return allOps.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
 async function collectAllPros(db, gameFilter) {
@@ -305,67 +349,93 @@ async function collectAllOps(db) {
 
 async function handleProsList(interaction, page = 0, extraGame = null) {
   const gameFilter = extraGame !== null ? extraGame : (interaction.options && interaction.options.getString ? interaction.options.getString('game') : 'fortnite');
+  
   try {
     const db = getFirestoreInstance();
     const allPros = await collectAllPros(db, gameFilter);
+    
     if (allPros.length === 0) {
       const msg = gameFilter ? `No pros found for **${gameFilter}**.` : 'No pros found.';
       return interaction.editReply({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
     }
+    
     const totalPages = Math.ceil(allPros.length / PER_PAGE);
     const p = Math.max(0, Math.min(page, totalPages - 1));
     const slice = allPros.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
 
-    const lines = slice.map(pro =>
-      `• **${pro.name}** — ${pro.role || 'Pro Player'} · ${pro.teamName || '—'}`
-    );
+    // Create a beautiful embed
     const embed = new EmbedBuilder()
       .setTitle(gameFilter ? `👥 Fortnite Pros` : '👥 All Pros')
-      .setDescription(lines.join('\n'))
+      .setDescription(`**Total Pros:** ${allPros.length}\n**Showing:** ${slice.length} pros on this page`)
       .setColor(0x8a2be2)
-      .setFooter({ text: `Page ${p + 1}/${totalPages} · ${allPros.length} total · Select below for full profile` })
+      .setThumbnail('https://cdn.discordapp.com/emojis/1462884163265757294.webp?size=128') // Add your logo
+      .setFooter({ 
+        text: `Page ${p + 1}/${totalPages} · Select a pro below for full profile`,
+        iconURL: interaction.client.user.displayAvatarURL()
+      })
       .setTimestamp();
 
+    // Add each pro as a field
+    slice.forEach((pro, index) => {
+      const fieldName = `${index + 1 + (p * PER_PAGE)}. ${pro.name}`;
+      const fieldValue = `**Team:** ${pro.teamName || '—'} • **Role:** ${pro.role || 'Pro Player'}`;
+      embed.addFields({ name: fieldName, value: fieldValue, inline: true });
+    });
+
+    // Build components
     const components = [];
+    
+    // Add pagination buttons
     const pagRow = buildPaginationRow('pros_list', p, totalPages, gameFilter || '');
     if (pagRow) components.push(pagRow);
     
+    // Add select menu for profiles
     const selectOptions = slice.slice(0, 25).map(pro => ({
       label: (pro.name || 'Unknown').substring(0, 100),
       value: (pro.name || '').substring(0, 100),
-      description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`
+      description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`.substring(0, 100)
     }));
     
     if (selectOptions.length) {
-      components.push(
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`pro_sel:pros_list:${p}:${encodeExtra(gameFilter || '')}`)
-            .setPlaceholder('View full profile…')
-            .addOptions(selectOptions)
-        )
+      const selectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`pro_sel:pros_list:${p}:${encodeExtra(gameFilter || '')}`)
+          .setPlaceholder('🔍 View full profile...')
+          .addOptions(selectOptions)
       );
+      components.push(selectRow);
     }
+    
     const payload = { embeds: [embed], components };
-    if (interaction.isButton?.()) await interaction.update(payload).catch(() => {});
-    else await interaction.editReply(payload).catch(() => {});
+    
+    if (interaction.isButton?.()) {
+      await interaction.update(payload).catch(() => {});
+    } else {
+      await interaction.editReply(payload).catch(() => {});
+    }
   } catch (error) {
     console.error('pros_list error:', error);
     const errPayload = { content: '❌ Failed to fetch pros list.', embeds: [], components: [] };
-    if (interaction.isButton?.()) await interaction.update(errPayload).catch(() => {});
-    else await interaction.editReply(errPayload).catch(() => {});
+    if (interaction.isButton?.()) {
+      await interaction.update(errPayload).catch(() => {});
+    } else {
+      await interaction.editReply(errPayload).catch(() => {});
+    }
   }
 }
 
 async function handleProInfo(interaction) {
   const name = interaction.options.getString('name');
+  
   try {
     const db = getFirestoreInstance();
     const result = await findProByName(db, name);
+    
     if (!result) {
-      await interaction.editReply(`❌ No pro matching **${name}**. Try \`/pros_list\` to see names.`);
+      await interaction.editReply(`❌ No pro matching **${name}**. Try \`/pros_list\` to see all pros.`);
       return;
     }
+    
     const embed = buildProEmbed(result.pro, result.teamName, result.source);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
@@ -374,45 +444,83 @@ async function handleProInfo(interaction) {
   }
 }
 
-/** Called when user selects a pro from pros_list select menu. */
 async function replyWithProDetail(interaction, proName, backPayload) {
   try {
     const db = getFirestoreInstance();
     const result = await findProByName(db, proName);
+    
     if (!result) {
-      await interaction.update({ content: `❌ Pro **${proName}** not found.`, embeds: [], components: [] }).catch(() => {});
+      await interaction.update({ 
+        content: `❌ Pro **${proName}** not found.`, 
+        embeds: [], 
+        components: [] 
+      }).catch(() => {});
       return;
     }
+    
     const embed = buildProEmbed(result.pro, result.teamName, result.source);
     const backId = `back:${backPayload.cmd}:${backPayload.page}:${encodeExtra(backPayload.extra || '')}`.slice(0, 100);
+    
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(backId).setLabel('◀ Back to list').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder()
+        .setCustomId(backId)
+        .setLabel('◀ Back to list')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('⬅️')
     );
-    await interaction.update({ content: null, embeds: [embed], components: [row] }).catch(() => {});
+    
+    await interaction.update({ 
+      content: null, 
+      embeds: [embed], 
+      components: [row] 
+    }).catch(() => {});
   } catch (error) {
     console.error('replyWithProDetail error:', error);
-    await interaction.update({ content: '❌ Failed to load profile.', embeds: [], components: [] }).catch(() => {});
+    await interaction.update({ 
+      content: '❌ Failed to load profile.', 
+      embeds: [], 
+      components: [] 
+    }).catch(() => {});
   }
 }
 
-/** Called when user selects an op from ops_info select menu. */
 async function replyWithOpsDetail(interaction, opName, backPayload) {
   try {
     const db = getFirestoreInstance();
     const result = await findProByName(db, opName);
+    
     if (!result) {
-      await interaction.update({ content: `❌ **${opName}** not found.`, embeds: [], components: [] }).catch(() => {});
+      await interaction.update({ 
+        content: `❌ **${opName}** not found.`, 
+        embeds: [], 
+        components: [] 
+      }).catch(() => {});
       return;
     }
+    
     const embed = buildProEmbed(result.pro, result.teamName, result.source, 'Operations');
     const backId = `back:${backPayload.cmd}:${backPayload.page}:${encodeExtra(backPayload.extra || '')}`.slice(0, 100);
+    
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(backId).setLabel('◀ Back to list').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder()
+        .setCustomId(backId)
+        .setLabel('◀ Back to list')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('⬅️')
     );
-    await interaction.update({ content: null, embeds: [embed], components: [row] }).catch(() => {});
+    
+    await interaction.update({ 
+      content: null, 
+      embeds: [embed], 
+      components: [row] 
+    }).catch(() => {});
   } catch (error) {
     console.error('replyWithOpsDetail error:', error);
-    await interaction.update({ content: '❌ Failed to load profile.', embeds: [], components: [] }).catch(() => {});
+    await interaction.update({ 
+      content: '❌ Failed to load profile.', 
+      embeds: [], 
+      components: [] 
+    }).catch(() => {});
   }
 }
 
@@ -420,74 +528,90 @@ async function handleOpsInfo(interaction, page = 0) {
   try {
     const db = getFirestoreInstance();
     const allOps = await collectAllOps(db);
+    
     if (allOps.length === 0) {
-      return interaction.editReply({ content: '❌ No operations/management team members found.', embeds: [], components: [] }).catch(() => {});
+      return interaction.editReply({ 
+        content: '❌ No operations/management team members found.', 
+        embeds: [], 
+        components: [] 
+      }).catch(() => {});
     }
+    
     const totalPages = Math.ceil(allOps.length / PER_PAGE);
     const p = Math.max(0, Math.min(page, totalPages - 1));
     const slice = allOps.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
 
-    const lines = slice.map(op =>
-      `• **${op.name}** — ${op.role || '—'} · ${op.teamName || '—'}`
-    );
     const embed = new EmbedBuilder()
-      .setTitle('👥 Operations / Management')
-      .setDescription(lines.join('\n'))
+      .setTitle('👥 Operations & Management')
+      .setDescription(`**Total Members:** ${allOps.length}\n**Showing:** ${slice.length} on this page`)
       .setColor(0x8a2be2)
-      .setFooter({ text: `Page ${p + 1}/${totalPages} · ${allOps.length} total · Select below for full profile` })
+      .setThumbnail('https://cdn.discordapp.com/emojis/1462884163265757294.webp?size=128')
+      .setFooter({ 
+        text: `Page ${p + 1}/${totalPages} · Select below for full profile`,
+        iconURL: interaction.client.user.displayAvatarURL()
+      })
       .setTimestamp();
 
+    slice.forEach((op, index) => {
+      const fieldName = `${index + 1 + (p * PER_PAGE)}. ${op.name}`;
+      const fieldValue = `**Team:** ${op.teamName || '—'} • **Role:** ${op.role || '—'}`;
+      embed.addFields({ name: fieldName, value: fieldValue, inline: true });
+    });
+
     const components = [];
+    
     const pagRow = buildPaginationRow('ops_info', p, totalPages, '');
     if (pagRow) components.push(pagRow);
     
     const selectOptions = slice.slice(0, 25).map(op => ({
       label: (op.name || 'Unknown').substring(0, 100),
       value: (op.name || '').substring(0, 100),
-      description: `${op.role || '—'} · ${op.teamName || '—'}`
+      description: `${op.role || '—'} · ${op.teamName || '—'}`.substring(0, 100)
     }));
     
     if (selectOptions.length) {
-      components.push(
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`ops_sel:ops_info:${p}:`)
-            .setPlaceholder('View full profile…')
-            .addOptions(selectOptions)
-        )
+      const selectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`ops_sel:ops_info:${p}:`)
+          .setPlaceholder('🔍 View full profile...')
+          .addOptions(selectOptions)
       );
+      components.push(selectRow);
     }
+    
     const payload = { embeds: [embed], components };
-    if (interaction.isButton?.()) await interaction.update(payload).catch(() => {});
-    else await interaction.editReply(payload).catch(() => {});
+    
+    if (interaction.isButton?.()) {
+      await interaction.update(payload).catch(() => {});
+    } else {
+      await interaction.editReply(payload).catch(() => {});
+    }
   } catch (error) {
     console.error('ops_info error:', error);
     const errPayload = { content: '❌ Failed to fetch ops list.', embeds: [], components: [] };
-    if (interaction.isButton?.()) await interaction.update(errPayload).catch(() => {});
-    else await interaction.editReply(errPayload).catch(() => {});
+    if (interaction.isButton?.()) {
+      await interaction.update(errPayload).catch(() => {});
+    } else {
+      await interaction.editReply(errPayload).catch(() => {});
+    }
   }
 }
-
-// Note: handleListPros has been removed as it's duplicate of handleProsList
 
 module.exports = {
   isPro,
   isOperations,
   collectAllPros,
   collectAllOps,
-  prosTotalCommand,
+  prosTotalCommand, // This is now the /teams command
   prosListCommand,
   proInfoCommand,
-  // listProsCommand removed
   opsInfoCommand,
-  handleProsTotal,
+  handleProsTotal, // This handles the /teams command
   handleProsList,
   handleProInfo,
-  // handleListPros removed
   handleOpsInfo,
   replyWithProDetail,
   replyWithOpsDetail,
-  // handleListProsPaginated removed
   handleProsListPaginated: (i, page, extra) => handleProsList(i, page, extra),
   handleOpsInfoPaginated: (i, page) => handleOpsInfo(i, page)
 };
