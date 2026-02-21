@@ -84,7 +84,7 @@ function buildHelpEmbed(category, totalCommands = 24) {
 function buildHelpButtons(currentCategory) {
   const rows = [];
   
-  // First row - Category buttons
+  // First row - Category buttons (all use customId, no URLs)
   const categoryRow = new ActionRowBuilder();
   
   const categories = [
@@ -106,29 +106,42 @@ function buildHelpButtons(currentCategory) {
   
   rows.push(categoryRow);
   
-  // Second row - Utility buttons
-  const utilityRow = new ActionRowBuilder()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId('help_all')
-        .setLabel('📋 All Commands')
-        .setStyle(ButtonStyle.Success)
-        .setEmoji('📋'),
-      new ButtonBuilder()
-        .setCustomId('help_support')
-        .setLabel('🆘 Support')
-        .setStyle(ButtonStyle.Link)
-        .setURL('https://discord.gg/void-esports-lf-investors-1197180527686463498')
-        .setEmoji('💬'),
-      new ButtonBuilder()
-        .setCustomId('help_invite')
-        .setLabel('🤖 Invite Bot')
-        .setStyle(ButtonStyle.Link)
-        .setURL('https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands')
-        .setEmoji('➕')
-    );
+  // Second row - Utility buttons (separate customId and link buttons)
+  const utilityRow = new ActionRowBuilder();
+  
+  // All Commands button (customId)
+  utilityRow.addComponents(
+    new ButtonBuilder()
+      .setCustomId('help_all')
+      .setLabel('📋 All Commands')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('📋')
+  );
   
   rows.push(utilityRow);
+  
+  // Third row - Link buttons only (these use URL, not customId)
+  const linkRow = new ActionRowBuilder();
+  
+  // Support button (link)
+  linkRow.addComponents(
+    new ButtonBuilder()
+      .setLabel('💬 Support Server')
+      .setStyle(ButtonStyle.Link)
+      .setURL('https://discord.gg/void-esports-lf-investors-1197180527686463498')
+      .setEmoji('💬')
+  );
+  
+  // Invite button (link)
+  linkRow.addComponents(
+    new ButtonBuilder()
+      .setLabel('➕ Invite Bot')
+      .setStyle(ButtonStyle.Link)
+      .setURL('https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands')
+      .setEmoji('➕')
+  );
+  
+  rows.push(linkRow);
   
   return rows;
 }
