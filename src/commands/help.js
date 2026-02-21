@@ -17,6 +17,9 @@ const helpCommand = new SlashCommandBuilder()
       )
   );
 
+// Your custom emoji URL
+const CUSTOM_EMOJI_URL = 'https://cdn.discordapp.com/emojis/1444539060004589669.webp?size=128';
+
 function buildHelpEmbed(category, totalCommands = 24) {
   const embed = new EmbedBuilder()
     .setTitle('🤖 Void Website Bot - Commands')
@@ -25,9 +28,9 @@ function buildHelpEmbed(category, totalCommands = 24) {
     .setTimestamp()
     .setFooter({ 
       text: `${totalCommands} total commands • Use /help [category] to filter`,
-      iconURL: 'https://cdn.discordapp.com/emojis/1234567890.png'
+      iconURL: CUSTOM_EMOJI_URL
     })
-    .setThumbnail('https://media.discordapp.net/attachments/123456789/void-logo.png');
+    .setThumbnail(CUSTOM_EMOJI_URL);
 
   if (category === 'teams') {
     embed.addFields(
@@ -84,7 +87,7 @@ function buildHelpEmbed(category, totalCommands = 24) {
 function buildHelpButtons(currentCategory) {
   const rows = [];
   
-  // First row - Category buttons (all use customId, no URLs)
+  // Row 1 - Category buttons only
   const categoryRow = new ActionRowBuilder();
   
   const categories = [
@@ -106,11 +109,9 @@ function buildHelpButtons(currentCategory) {
   
   rows.push(categoryRow);
   
-  // Second row - Utility buttons (separate customId and link buttons)
-  const utilityRow = new ActionRowBuilder();
-  
-  // All Commands button (customId)
-  utilityRow.addComponents(
+  // Row 2 - Just the All Commands button
+  const allRow = new ActionRowBuilder();
+  allRow.addComponents(
     new ButtonBuilder()
       .setCustomId('help_all')
       .setLabel('📋 All Commands')
@@ -118,30 +119,7 @@ function buildHelpButtons(currentCategory) {
       .setEmoji('📋')
   );
   
-  rows.push(utilityRow);
-  
-  // Third row - Link buttons only (these use URL, not customId)
-  const linkRow = new ActionRowBuilder();
-  
-  // Support button (link)
-  linkRow.addComponents(
-    new ButtonBuilder()
-      .setLabel('💬 Support Server')
-      .setStyle(ButtonStyle.Link)
-      .setURL('https://discord.gg/void-esports-lf-investors-1197180527686463498')
-      .setEmoji('💬')
-  );
-  
-  // Invite button (link)
-  linkRow.addComponents(
-    new ButtonBuilder()
-      .setLabel('➕ Invite Bot')
-      .setStyle(ButtonStyle.Link)
-      .setURL('https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands')
-      .setEmoji('➕')
-  );
-  
-  rows.push(linkRow);
+  rows.push(allRow);
   
   return rows;
 }
