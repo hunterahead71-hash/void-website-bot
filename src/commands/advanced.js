@@ -103,41 +103,32 @@ async function handleStatus(interaction) {
 async function handleStats(interaction) {
   try {
     const db = getFirestoreInstance();
-    
-    // Fetch all data
-    const [teamsSnapshot, productsSnapshot, newsSnapshot, placementsSnapshot, ambassadorsSnapshot] = await Promise.all([
+    const { collectAllPros, collectAllOps } = require('./pros');
+
+    const [teamsSnapshot, productsSnapshot, newsSnapshot, placementsSnapshot, allPros, allOps] = await Promise.all([
       db.collection('teams').get(),
       db.collection('products').get(),
       db.collection('newsArticles').get(),
       db.collection('placements').get(),
-      db.collection('ambassadors').get()
+      collectAllPros(db, null),
+      collectAllOps(db)
     ]);
 
     const teams = teamsSnapshot.docs || [];
     const products = productsSnapshot.docs || [];
     const news = newsSnapshot.docs || [];
     const placements = placementsSnapshot.docs || [];
-    const ambassadors = ambassadorsSnapshot.docs || [];
-
-    let totalPros = 0;
-    teams.forEach(teamDoc => {
-      const team = teamDoc.data ? teamDoc.data() : teamDoc;
-      if (team && team.players && Array.isArray(team.players)) {
-        totalPros += team.players.length;
-      }
-    });
-    totalPros += ambassadors.length;
 
     const safe = (n) => (n != null ? String(n) : '0');
     const embed = new EmbedBuilder()
       .setTitle('📊 Void eSports Statistics')
-      .setDescription('Live counts from the Void website. Site visits and purchase stats would require the site to store them in Firebase.')
+      .setDescription('Live counts from the Void website. Pros = Fortnite players; Operations = Management.')
       .addFields(
         { name: 'Teams', value: safe(teams.length), inline: true },
-        { name: 'Total Pros', value: safe(totalPros), inline: true },
-        { name: 'Ambassadors', value: safe(ambassadors.length), inline: true },
+        { name: 'Pros (Fortnite)', value: safe(allPros.length), inline: true },
+        { name: 'Operations', value: safe(allOps.length), inline: true },
         { name: 'Products (Merch)', value: safe(products.length), inline: true },
-        { name: 'News Articles', value: safe(news.length), inline: true },
+        { name: 'News', value: safe(news.length), inline: true },
         { name: 'Placements', value: safe(placements.length), inline: true }
       )
       .setColor(0x8a2be2)
@@ -180,40 +171,30 @@ async function handleAdvancedStats(interaction) {
 
   try {
     const db = getFirestoreInstance();
-    const [teamsSnap, productsSnap, newsSnap, placementsSnap, ambassadorsSnap, siteStatsSnap] = await Promise.all([
+    const { collectAllPros, collectAllOps } = require('./pros');
+    const [teamsSnap, productsSnap, newsSnap, placementsSnap, siteStatsSnap, allPros, allOps] = await Promise.all([
       db.collection('teams').get(),
       db.collection('products').get(),
       db.collection('newsArticles').get(),
       db.collection('placements').get(),
-      db.collection('ambassadors').get(),
-      db.collection('siteStats').limit(1).get().catch(() => ({ docs: [] }))
+      db.collection('siteStats').limit(1).get().catch(() => ({ docs: [] })),
+      collectAllPros(db, null),
+      collectAllOps(db)
     ]);
 
     const teams = (teamsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const products = (productsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const news = (newsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const placements = (placementsSnap.docs || []).map(doc => convertFirestoreData(doc));
-    const ambassadors = (ambassadorsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const siteStatsDoc = (siteStatsSnap.docs && siteStatsSnap.docs[0]) ? convertFirestoreData(siteStatsSnap.docs[0]) : null;
     const siteVisitors = siteStatsDoc != null ? (siteStatsDoc.visitors ?? siteStatsDoc.siteVisits ?? siteStatsDoc.visits ?? null) : null;
     const merchPurchases = siteStatsDoc != null ? (siteStatsDoc.purchases ?? siteStatsDoc.merchPurchases ?? siteStatsDoc.orders ?? null) : null;
 
-    let totalTeamPros = 0;
     const gameCounts = {};
-    teams.forEach(team => {
-      if (team.players && Array.isArray(team.players)) {
-        totalTeamPros += team.players.length;
-        team.players.forEach(p => {
-          const g = p.game || 'Unknown';
-          gameCounts[g] = (gameCounts[g] || 0) + 1;
-        });
-      }
-    });
-    ambassadors.forEach(a => {
-      const g = a.game || 'Unknown';
+    allPros.forEach(p => {
+      const g = p.game || 'Unknown';
       gameCounts[g] = (gameCounts[g] || 0) + 1;
     });
-
     const gameBreakdown = Object.entries(gameCounts)
       .sort((a, b) => b[1] - a[1])
       .map(([game, count]) => `${game}: **${count}**`)
@@ -233,8 +214,8 @@ async function handleAdvancedStats(interaction) {
         { name: 'Site visitors', value: siteVisitors != null ? String(siteVisitors) : 'N/A', inline: true },
         { name: 'Merch purchases', value: merchPurchases != null ? String(merchPurchases) : 'N/A', inline: true },
         { name: 'Teams', value: String(teams.length), inline: true },
-        { name: 'Team pros', value: String(totalTeamPros), inline: true },
-        { name: 'Ambassadors', value: String(ambassadors.length), inline: true },
+        { name: 'Pros (Fortnite)', value: String(allPros.length), inline: true },
+        { name: 'Operations', value: String(allOps.length), inline: true },
         { name: 'Pros by game', value: gameBreakdown.substring(0, 1024), inline: false },
         { name: 'Products (merch)', value: String(products.length), inline: true },
         { name: 'Est. merch value', value: totalMerchValue ? `$${totalMerchValue.toFixed(0)}` : 'N/A', inline: true },

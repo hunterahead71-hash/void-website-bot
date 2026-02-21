@@ -14,10 +14,12 @@ const {
   handleProsList,
   handleProInfo,
   handleListPros,
+  handleOpsInfo,
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
-  listProsCommand
+  listProsCommand,
+  opsInfoCommand
 } = require('./commands/pros');
 const {
   handleTeams,
@@ -56,7 +58,9 @@ const { parsePaginationCustomId } = require('./utils/pagination');
 const {
   handleListProsPaginated,
   handleProsListPaginated,
-  replyWithProDetail
+  handleOpsInfoPaginated,
+  replyWithProDetail,
+  replyWithOpsDetail
 } = require('./commands/pros');
 const { handleMerchPaginated } = require('./commands/merch');
 const { handleTeamsPaginated } = require('./commands/teams');
@@ -92,6 +96,7 @@ async function registerCommands() {
     prosListCommand,
     proInfoCommand,
     listProsCommand,
+    opsInfoCommand,
     teamsCommand,
     teamInfoCommand,
     merchCommand,
@@ -172,6 +177,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const { cmd, page, extra } = parsePaginationCustomId(id);
         if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
+        if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
         if (cmd === 'merch') return await handleMerchPaginated(interaction, page, extra);
         if (cmd === 'teams') return await handleTeamsPaginated(interaction, page, extra);
         if (cmd === 'news') return await handleNewsPaginated(interaction, page, extra);
@@ -185,6 +191,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const extra = (parts[2] || '').replace(/_/g, ' ');
         if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
+        if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
       }
     } catch (err) {
       console.error('Button handler error:', err);
@@ -193,7 +200,7 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 
-  // Select menu: pro detail from list
+  // Select menu: pro or ops detail from list
   if (interaction.isStringSelectMenu()) {
     const id = interaction.customId || '';
     if (id.startsWith('pro_sel:')) {
@@ -208,6 +215,19 @@ client.on(Events.InteractionCreate, async interaction => {
         }
       } catch (err) {
         console.error('Select menu error:', err);
+        await interaction.update({ content: '❌ Failed to load profile.', embeds: [], components: [] }).catch(() => {});
+      }
+    } else if (id.startsWith('ops_sel:')) {
+      try {
+        const parts = id.slice(8).split(':');
+        const cmd = parts[0];
+        const page = parseInt(parts[1], 10) || 0;
+        const opName = interaction.values?.[0];
+        if (opName) {
+          await replyWithOpsDetail(interaction, opName, { cmd, page, extra: '' });
+        }
+      } catch (err) {
+        console.error('Ops select menu error:', err);
         await interaction.update({ content: '❌ Failed to load profile.', embeds: [], components: [] }).catch(() => {});
       }
     }
@@ -234,6 +254,9 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'list_pros':
         await handleListPros(interaction);
+        break;
+      case 'ops_info':
+        await handleOpsInfo(interaction);
         break;
       case 'teams':
         await handleTeams(interaction);

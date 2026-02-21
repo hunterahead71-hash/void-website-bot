@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 const { setThumbnailIfValid } = require('../utils/discordEmbeds');
+const { collectAllPros } = require('./pros');
 
 const gamesCommand = new SlashCommandBuilder()
   .setName('games')
@@ -21,25 +22,15 @@ const randomProCommand = new SlashCommandBuilder()
 async function handleGames(interaction) {
   try {
     const db = getFirestoreInstance();
-    const [teamsSnap, placementsSnap, ambassadorsSnap] = await Promise.all([
-      db.collection('teams').get(),
+    const [placementsSnap, allPros] = await Promise.all([
       db.collection('placements').get(),
-      db.collection('ambassadors').get()
+      collectAllPros(db, null)
     ]);
     const games = new Set();
-    (teamsSnap.docs || []).forEach(doc => {
-      const t = convertFirestoreData(doc);
-      if (t.players && Array.isArray(t.players)) {
-        t.players.forEach(p => { if (p.game) games.add(p.game); });
-      }
-    });
+    allPros.forEach(p => { if (p.game) games.add(p.game); });
     (placementsSnap.docs || []).forEach(doc => {
       const p = convertFirestoreData(doc);
       if (p.game) games.add(p.game);
-    });
-    (ambassadorsSnap.docs || []).forEach(doc => {
-      const a = convertFirestoreData(doc);
-      if (a.game) games.add(a.game);
     });
     const list = [...games].sort((a, b) => a.localeCompare(b));
     const embed = new EmbedBuilder()
@@ -108,21 +99,9 @@ async function handleTopPlacements(interaction) {
 async function handleRandomPro(interaction) {
   try {
     const db = getFirestoreInstance();
-    const allPros = [];
-    const teamsSnap = await db.collection('teams').get();
-    (teamsSnap.docs || []).forEach(doc => {
-      const team = convertFirestoreData(doc);
-      if (team.players && Array.isArray(team.players)) {
-        team.players.forEach(p => allPros.push({ ...p, teamName: team.name, source: 'team' }));
-      }
-    });
-    const ambSnap = await db.collection('ambassadors').get();
-    (ambSnap.docs || []).forEach(doc => {
-      const a = convertFirestoreData(doc);
-      allPros.push({ name: a.name, role: a.role, game: a.game, teamName: 'Ambassador', source: 'ambassador', socialLinks: a.socialLinks, achievements: a.achievements });
-    });
+    const allPros = await collectAllPros(db, null);
     if (!allPros.length) {
-      await interaction.editReply('❌ No pros in the database.');
+      await interaction.editReply('❌ No pros (Fortnite players) in the database.');
       return;
     }
     const pro = allPros[Math.floor(Math.random() * allPros.length)];

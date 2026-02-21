@@ -5,7 +5,8 @@ const {
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
-  listProsCommand
+  listProsCommand,
+  opsInfoCommand
 } = require('./commands/pros');
 const {
   teamsCommand,
@@ -35,6 +36,7 @@ const commands = [
   prosListCommand,
   proInfoCommand,
   listProsCommand,
+  opsInfoCommand,
   teamsCommand,
   teamInfoCommand,
   merchCommand,
