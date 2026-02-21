@@ -5,7 +5,7 @@ const {
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
-  listProsCommand,
+  // listProsCommand removed
   opsInfoCommand
 } = require('./commands/pros');
 const {
@@ -35,7 +35,7 @@ const commands = [
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
-  listProsCommand,
+  // listProsCommand removed
   opsInfoCommand,
   teamsCommand,
   teamInfoCommand,
@@ -80,4 +80,3 @@ async function registerCommands() {
 }
 
 registerCommands();
-
