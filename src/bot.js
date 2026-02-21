@@ -237,8 +237,6 @@ client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const commandName = interaction.commandName;
-
-  // Defer immediately so Discord gets a response within 3 seconds (avoids "Unknown interaction")
   await interaction.deferReply().catch(() => {});
 
   try {

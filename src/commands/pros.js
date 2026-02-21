@@ -4,18 +4,47 @@ const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 const { buildPaginationRow, encodeExtra } = require('../utils/pagination');
 
 const PER_PAGE = 10;
+const CACHE_TTL_MS = 45000; // 45s cache for faster repeated commands
 
-/** True if person is a pro (game includes Fortnite). */
-function isPro(person) {
-  const g = (person.game || '').toLowerCase().trim();
-  return g.includes('fortnite');
+let _teamsAmbassadorsCache = null;
+let _teamsAmbassadorsCacheTime = 0;
+
+/** Fetch teams + ambassadors in parallel; use short-lived cache to reduce latency. */
+async function getTeamsAndAmbassadors(db) {
+  const now = Date.now();
+  if (_teamsAmbassadorsCache && now - _teamsAmbassadorsCacheTime < CACHE_TTL_MS) {
+    return _teamsAmbassadorsCache;
+  }
+  const [teamsSnap, ambassadorsSnap] = await Promise.all([
+    db.collection('teams').get(),
+    db.collection('ambassadors').get()
+  ]);
+  const teams = (teamsSnap.docs || []).map((d) => convertFirestoreData(d));
+  const ambassadors = (ambassadorsSnap.docs || []).map((d) => convertFirestoreData(d));
+  _teamsAmbassadorsCache = { teams, ambassadors };
+  _teamsAmbassadorsCacheTime = now;
+  return _teamsAmbassadorsCache;
 }
 
-/** True if person is operations (game or role includes Management). */
+/** Get all string values from person (any field name) and join for searching. */
+function getPersonSearchText(person) {
+  if (!person || typeof person !== 'object') return '';
+  return Object.values(person)
+    .filter((v) => typeof v === 'string')
+    .join(' ')
+    .toLowerCase();
+}
+
+/** True if person is a pro (Fortnite anywhere in their role/game/text). */
+function isPro(person) {
+  const text = getPersonSearchText(person);
+  return text.includes('fortnite');
+}
+
+/** True if person is operations (Management anywhere in their role/game/text). */
 function isOperations(person) {
-  const g = (person.game || '').toLowerCase().trim();
-  const r = (person.role || '').toLowerCase().trim();
-  return g.includes('management') || r.includes('management');
+  const text = getPersonSearchText(person);
+  return text.includes('management');
 }
 
 const prosTotalCommand = new SlashCommandBuilder()
@@ -122,10 +151,9 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
 async function handleProsTotal(interaction) {
   try {
     const db = getFirestoreInstance();
-    const allPros = await collectAllPros(db, null);
-    const allOps = await collectAllOps(db);
-    const teamsSnapshot = await db.collection('teams').get();
-    const teams = teamsSnapshot.docs.map(doc => convertFirestoreData(doc));
+    const { teams, ambassadors } = await getTeamsAndAmbassadors(db);
+    const allPros = collectAllProsFromData(teams, ambassadors, null);
+    const allOps = collectAllOpsFromData(teams, ambassadors);
 
     const embed = new EmbedBuilder()
       .setTitle('📊 Void eSports — Pros & Teams')
@@ -142,25 +170,22 @@ async function handleProsTotal(interaction) {
   }
 }
 
-async function collectAllPros(db, gameFilter) {
+function collectAllProsFromData(teams, ambassadors, gameFilter) {
   const allPros = [];
-  const teamsSnap = await db.collection('teams').get();
-  teamsSnap.docs.forEach(doc => {
-    const team = convertFirestoreData(doc);
+  (teams || []).forEach((team) => {
     if (team.players && Array.isArray(team.players)) {
-      team.players.forEach(player => {
-        if (!isPro(player)) return;
-        if (!gameFilter || (player.game && player.game.toLowerCase().includes(gameFilter.toLowerCase()))) {
-          allPros.push({ ...player, teamName: team.name, source: 'team' });
+      team.players.forEach((player) => {
+        const p = player && typeof player === 'object' ? { ...player } : player;
+        if (!isPro(p)) return;
+        if (!gameFilter || getPersonSearchText(p).includes(gameFilter.toLowerCase())) {
+          allPros.push({ ...p, teamName: team.name, source: 'team' });
         }
       });
     }
   });
-  const ambassadorsSnapshot = await db.collection('ambassadors').get();
-  ambassadorsSnapshot.docs.forEach(doc => {
-    const ambassador = convertFirestoreData(doc);
+  (ambassadors || []).forEach((ambassador) => {
     if (!isPro(ambassador)) return;
-    if (!gameFilter || (ambassador.game && ambassador.game.toLowerCase().includes(gameFilter.toLowerCase()))) {
+    if (!gameFilter || getPersonSearchText(ambassador).includes(gameFilter.toLowerCase())) {
       allPros.push({
         name: ambassador.name,
         role: ambassador.role,
@@ -176,21 +201,18 @@ async function collectAllPros(db, gameFilter) {
   return allPros.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
-async function collectAllOps(db) {
+function collectAllOpsFromData(teams, ambassadors) {
   const allOps = [];
-  const teamsSnap = await db.collection('teams').get();
-  teamsSnap.docs.forEach(doc => {
-    const team = convertFirestoreData(doc);
+  (teams || []).forEach((team) => {
     if (team.players && Array.isArray(team.players)) {
-      team.players.forEach(player => {
-        if (!isOperations(player)) return;
-        allOps.push({ ...player, teamName: team.name, source: 'team' });
+      team.players.forEach((player) => {
+        const p = player && typeof player === 'object' ? { ...player } : player;
+        if (!isOperations(p)) return;
+        allOps.push({ ...p, teamName: team.name, source: 'team' });
       });
     }
   });
-  const ambassadorsSnapshot = await db.collection('ambassadors').get();
-  ambassadorsSnapshot.docs.forEach(doc => {
-    const ambassador = convertFirestoreData(doc);
+  (ambassadors || []).forEach((ambassador) => {
     if (!isOperations(ambassador)) return;
     allOps.push({
       name: ambassador.name,
@@ -204,6 +226,16 @@ async function collectAllOps(db) {
     });
   });
   return allOps.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+async function collectAllPros(db, gameFilter) {
+  const { teams, ambassadors } = await getTeamsAndAmbassadors(db);
+  return collectAllProsFromData(teams, ambassadors, gameFilter);
+}
+
+async function collectAllOps(db) {
+  const { teams, ambassadors } = await getTeamsAndAmbassadors(db);
+  return collectAllOpsFromData(teams, ambassadors);
 }
 
 const opsInfoCommand = new SlashCommandBuilder()

@@ -102,6 +102,9 @@ function convertFirestoreData(docSnap) {
         if (item && typeof item === 'object' && typeof item.toDate === 'function') {
           return item.toDate().toISOString();
         }
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          return { ...item };
+        }
         return item;
       });
     } else {
