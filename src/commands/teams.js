@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
 const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 const { buildPaginationRow } = require('../utils/pagination');
+const { isOperations } = require('./pros');
 
 const teamsCommand = new SlashCommandBuilder()
   .setName('teams')
@@ -32,7 +33,9 @@ async function buildTeamsPage(interaction, page) {
   const lines = slice.map(t => {
     const game = t.players?.length ? (t.players[0].game || '—') : '—';
     const count = t.players ? t.players.length : 0;
-    return `• **${t.name}** — ${game} · ${count} player${count !== 1 ? 's' : ''}`;
+    const opsCount = t.players ? t.players.filter(p => isOperations(p, t.name)).length : 0;
+    const prosCount = count - opsCount;
+    return `• **${t.name}** — ${game} · ${prosCount} pro${prosCount !== 1 ? 's' : ''} · ${opsCount} ops`;
   });
   const embed = new EmbedBuilder()
     .setTitle('🏆 Void eSports Teams')
@@ -80,26 +83,51 @@ async function handleTeamInfo(interaction) {
       await interaction.editReply(`❌ Team **${name}** not found. Use \`/teams\` to list all.`);
       return;
     }
+    
     const embed = new EmbedBuilder()
       .setTitle(`🏆 ${team.name}`)
       .setDescription((team.description || 'No description.').substring(0, 4096))
       .setColor(0x00bfff)
       .setTimestamp()
       .setFooter({ text: 'Live from Void Website' });
+    
     if (team.achievements?.length) {
       embed.addFields({
         name: '🏆 Achievements',
         value: team.achievements.slice(0, 10).join('\n').substring(0, 1024)
       });
     }
+    
     if (team.players?.length) {
-      const roster = team.players.map(p => `• **${p.name}** — ${p.role || '—'} (${p.game || '—'})`).join('\n');
-      embed.addFields({ name: `Roster (${team.players.length})`, value: roster.substring(0, 1024) });
+      // Separate pros and ops
+      const pros = team.players.filter(p => !isOperations(p, team.name));
+      const ops = team.players.filter(p => isOperations(p, team.name));
+      
+      // Show pros roster
+      if (pros.length > 0) {
+        const prosRoster = pros.map(p => `• **${p.name}** — ${p.role || 'Pro Player'} (${p.game || 'Fortnite'})`).join('\n');
+        embed.addFields({ 
+          name: `Pros (${pros.length})`, 
+          value: prosRoster.length > 1024 ? prosRoster.substring(0, 1021) + '...' : prosRoster 
+        });
+      }
+      
+      // Show ops roster
+      if (ops.length > 0) {
+        const opsRoster = ops.map(p => `• **${p.name}** — ${p.role || 'Management'}`).join('\n');
+        embed.addFields({ 
+          name: `Operations (${ops.length})`, 
+          value: opsRoster.length > 1024 ? opsRoster.substring(0, 1021) + '...' : opsRoster 
+        });
+      }
+      
+      // Show games
       const games = [...new Set(team.players.map(p => p.game).filter(Boolean))];
       if (games.length) embed.addFields({ name: 'Games', value: games.join(', '), inline: true });
     } else {
       embed.addFields({ name: 'Roster', value: 'No players listed.' });
     }
+    
     setThumbnailIfValid(embed, team.image || team.logo);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
