@@ -183,7 +183,7 @@ async function handleLatestVideo(interaction) {
       .setColor(0xFF0000) // YouTube red
       .setAuthor({ 
         name: videoData.channelTitle || 'Void Esports', 
-        iconURL: 'https://www.youtube.com/s/desktop/014d6b3c/img/favicon_144x144.png',
+        iconURL: 'https://cdn.discordapp.com/emojis/1448065395922702480.webp?size=128',
         url: `https://www.youtube.com/channel/${videoData.channelId}`
       })
       .setURL(videoData.url)
@@ -192,7 +192,7 @@ async function handleLatestVideo(interaction) {
       .setTimestamp(videoData.publishedAt ? new Date(videoData.publishedAt) : undefined)
       .setFooter({ 
         text: `YouTube · ${videoData.views} views · ${videoData.duration}`,
-        iconURL: 'https://www.youtube.com/s/desktop/014d6b3c/img/favicon_144x144.png'
+        iconURL: 'https://cdn.discordapp.com/emojis/1448065395922702480.webp?size=128'
       });
     
     // Add statistics fields
