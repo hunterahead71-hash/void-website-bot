@@ -46,9 +46,13 @@ async function handlePlacements(interaction) {
     }
 
     const embeds = placements.map(p => {
+      const proNames = (p.players && Array.isArray(p.players) && p.players.length)
+        ? p.players.join(', ')
+        : (p.proName || p.playerName || p.pro || 'N/A');
       const embed = new EmbedBuilder()
         .setTitle(`${p.tournament} – ${p.position}`)
         .addFields(
+          { name: 'Pro', value: proNames, inline: true },
           { name: 'Team', value: p.team || 'N/A', inline: true },
           { name: 'Game', value: p.game || 'N/A', inline: true }
         )
@@ -58,13 +62,6 @@ async function handlePlacements(interaction) {
 
       if (p.prize) {
         embed.addFields({ name: 'Prize', value: p.prize, inline: true });
-      }
-
-      if (p.players && Array.isArray(p.players) && p.players.length) {
-        embed.addFields({ 
-          name: 'Players', 
-          value: p.players.slice(0, 5).join(', ') + (p.players.length > 5 ? '...' : '')
-        });
       }
 
       setThumbnailIfValid(embed, p.logo);

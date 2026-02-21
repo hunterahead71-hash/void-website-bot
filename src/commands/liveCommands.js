@@ -89,8 +89,8 @@ async function handleTopPlacements(interaction) {
       return;
     }
     const lines = placements.map((p, i) => {
-      const pos = `${i + 1}. **${p.tournament}** — ${p.position}\n   Team: ${p.team || 'N/A'} • Game: ${p.game || 'N/A'}${p.prize ? ` • ${p.prize}` : ''}`;
-      return pos;
+      const proNames = (p.players && Array.isArray(p.players) && p.players.length) ? p.players.join(', ') : (p.proName || p.playerName || 'N/A');
+      return `${i + 1}. **${p.tournament}** — ${p.position}\n   Pro: ${proNames} • Team: ${p.team || 'N/A'}${p.prize ? ` • ${p.prize}` : ''}`;
     });
     const embed = new EmbedBuilder()
       .setTitle('🏆 Top 3 Recent Placements')

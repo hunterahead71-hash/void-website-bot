@@ -180,12 +180,13 @@ async function handleAdvancedStats(interaction) {
 
   try {
     const db = getFirestoreInstance();
-    const [teamsSnap, productsSnap, newsSnap, placementsSnap, ambassadorsSnap] = await Promise.all([
+    const [teamsSnap, productsSnap, newsSnap, placementsSnap, ambassadorsSnap, siteStatsSnap] = await Promise.all([
       db.collection('teams').get(),
       db.collection('products').get(),
       db.collection('newsArticles').get(),
       db.collection('placements').get(),
-      db.collection('ambassadors').get()
+      db.collection('ambassadors').get(),
+      db.collection('siteStats').limit(1).get().catch(() => ({ docs: [] }))
     ]);
 
     const teams = (teamsSnap.docs || []).map(doc => convertFirestoreData(doc));
@@ -193,6 +194,9 @@ async function handleAdvancedStats(interaction) {
     const news = (newsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const placements = (placementsSnap.docs || []).map(doc => convertFirestoreData(doc));
     const ambassadors = (ambassadorsSnap.docs || []).map(doc => convertFirestoreData(doc));
+    const siteStatsDoc = (siteStatsSnap.docs && siteStatsSnap.docs[0]) ? convertFirestoreData(siteStatsSnap.docs[0]) : null;
+    const siteVisitors = siteStatsDoc != null ? (siteStatsDoc.visitors ?? siteStatsDoc.siteVisits ?? siteStatsDoc.visits ?? null) : null;
+    const merchPurchases = siteStatsDoc != null ? (siteStatsDoc.purchases ?? siteStatsDoc.merchPurchases ?? siteStatsDoc.orders ?? null) : null;
 
     let totalTeamPros = 0;
     const gameCounts = {};
@@ -226,6 +230,8 @@ async function handleAdvancedStats(interaction) {
       .setTitle('📊 Advanced Stats (live from website)')
       .setDescription('Detailed breakdown — admin only.')
       .addFields(
+        { name: 'Site visitors', value: siteVisitors != null ? String(siteVisitors) : 'N/A', inline: true },
+        { name: 'Merch purchases', value: merchPurchases != null ? String(merchPurchases) : 'N/A', inline: true },
         { name: 'Teams', value: String(teams.length), inline: true },
         { name: 'Team pros', value: String(totalTeamPros), inline: true },
         { name: 'Ambassadors', value: String(ambassadors.length), inline: true },

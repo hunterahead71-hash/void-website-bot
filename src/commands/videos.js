@@ -1,9 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { youtubeApiKey, youtubeChannelId } = require('../config');
+const { getFirestoreInstance, convertFirestoreData } = require('../firebaseClient');
+const { setThumbnailIfValid } = require('../utils/discordEmbeds');
 
 const videosCommand = new SlashCommandBuilder()
   .setName('videos')
-  .setDescription('Show latest Void YouTube videos.')
+  .setDescription('Show videos posted on the Void website (live from site).')
   .addIntegerOption(option =>
     option
       .setName('limit')
@@ -16,52 +17,48 @@ const videosCommand = new SlashCommandBuilder()
 async function handleVideos(interaction) {
   const limit = Math.min(Math.max(interaction.options.getInteger('limit') || 5, 1), 10);
   try {
-    if (!youtubeApiKey || !youtubeChannelId) {
-      await interaction.editReply('❌ YouTube API not configured. Videos cannot be fetched.');
+    const db = getFirestoreInstance();
+    let snap = await db.collection('videos').limit(50).get().catch(() => null);
+    if (!snap || !snap.docs || snap.docs.length === 0) {
+      await interaction.editReply('❌ No videos found on the website. Add videos in the site admin to see them here.');
       return;
     }
-
-    // Fetch videos from YouTube API
-    const response = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?key=${youtubeApiKey}&channelId=${youtubeChannelId}&part=snippet,id&order=date&maxResults=${limit}&type=video`
-    );
-
-    if (!response.ok) {
-      throw new Error(`YouTube API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.items || data.items.length === 0) {
-      await interaction.editReply('❌ No videos found.');
-      return;
-    }
-
-    const embeds = data.items.map(item => {
-      const snippet = item.snippet;
-      const videoId = item.id.videoId;
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-      const embed = new EmbedBuilder()
-        .setTitle(snippet.title)
-        .setDescription((snippet.description || 'No description.').substring(0, 4096))
-        .setURL(videoUrl)
-        .setColor(0xff0000)
-        .setTimestamp(snippet.publishedAt ? new Date(snippet.publishedAt) : undefined)
-        .setFooter({ text: 'Void eSports YouTube • Live data' });
-
-      if (snippet.thumbnails?.high?.url) {
-        embed.setThumbnail(snippet.thumbnails.high.url);
-      }
-
-      return embed;
+    const items = snap.docs.map(doc => convertFirestoreData(doc));
+    const dateKey = items[0].date ? 'date' : items[0].publishedAt ? 'publishedAt' : 'createdAt';
+    items.sort((a, b) => {
+      const da = a[dateKey] ? new Date(a[dateKey]).getTime() : 0;
+      const db_ = b[dateKey] ? new Date(b[dateKey]).getTime() : 0;
+      return db_ - da;
     });
-
-    await interaction.editReply({ embeds });
+    await sendVideoEmbeds(interaction, items.slice(0, limit));
   } catch (error) {
     console.error('videos error:', error);
-    await interaction.editReply('❌ Failed to fetch videos. Make sure YouTube API is configured correctly.');
+    await interaction.editReply('❌ Failed to fetch videos from the website.');
   }
+}
+
+function sendVideoEmbeds(interaction, items) {
+  const embeds = items.map(v => {
+    const url = v.url || v.youtubeUrl || v.link || null;
+    const embed = new EmbedBuilder()
+      .setTitle(v.title || 'Untitled Video')
+      .setDescription((v.description || 'No description.').substring(0, 4096))
+      .setColor(0xff0000)
+      .setFooter({ text: 'Void eSports • Videos from website' });
+
+    if (url) {
+      embed.setURL(url);
+    }
+    const date = v.date || v.publishedAt || v.createdAt;
+    if (date) {
+      embed.setTimestamp(new Date(date));
+    }
+    const thumb = v.thumbnail || v.thumbnailUrl || v.image;
+    setThumbnailIfValid(embed, thumb);
+    return embed;
+  });
+
+  interaction.editReply({ embeds });
 }
 
 module.exports = {

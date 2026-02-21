@@ -38,6 +38,11 @@ async function handleNews(interaction) {
         .setTimestamp(a.date ? new Date(a.date) : undefined)
         .setFooter({ text: 'Void eSports News • Live data' });
 
+      const videoUrl = a.youtubeUrl || a.videoUrl || a.videoLink || a.link || a.url;
+      if (videoUrl && (videoUrl.includes('youtube') || videoUrl.includes('youtu.be') || videoUrl.startsWith('http'))) {
+        embed.addFields({ name: 'Watch', value: `[YouTube / Video](${videoUrl})`, inline: false });
+        embed.setURL(videoUrl);
+      }
       if (a.category) {
         embed.addFields({ name: 'Category', value: a.category, inline: true });
       }

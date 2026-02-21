@@ -52,6 +52,7 @@ const {
   handleTopPlacements,
   handleRandomPro
 } = require('./commands/liveCommands');
+const { mgmtInfoCommand, handleMgmtInfo } = require('./commands/mgmt');
 
 // Create HTTP server for Render health checks
 const PORT = process.env.PORT || 3000;
@@ -96,7 +97,8 @@ async function registerCommands() {
     gamesCommand,
     latestCommand,
     topPlacementsCommand,
-    randomProCommand
+    randomProCommand,
+    mgmtInfoCommand
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(discordToken);
@@ -220,6 +222,9 @@ client.on(Events.InteractionCreate, async interaction => {
         break;
       case 'random_pro':
         await handleRandomPro(interaction);
+        break;
+      case 'mgmt_info':
+        await handleMgmtInfo(interaction);
         break;
       default:
         await interaction.editReply({ content: 'Unknown command.' }).catch(() => interaction.reply({ content: 'Unknown command.', flags: 64 }).catch(() => {}));

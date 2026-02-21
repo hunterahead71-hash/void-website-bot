@@ -38,12 +38,13 @@ function buildHelpEmbed(category) {
       { name: 'Merch & Content', value: 'Live from website', inline: false },
       { name: '/merch', value: 'Merch names and prices', inline: true },
       { name: '/news', value: 'Latest news', inline: true },
-      { name: '/videos', value: 'Latest YouTube (needs YT API)', inline: true },
-      { name: '/placements', value: 'Tournament placements', inline: true },
+      { name: '/videos', value: 'Videos posted on the website', inline: true },
+      { name: '/placements', value: 'Tournament placements (with pro names)', inline: true },
       { name: '/games', value: 'All games with data', inline: true },
       { name: '/latest', value: 'Single latest news', inline: true },
       { name: '/top_placements', value: 'Top 3 placements', inline: true },
-      { name: '/random_pro', value: 'Random pro', inline: true }
+      { name: '/random_pro', value: 'Random pro', inline: true },
+      { name: '/mgmt_info', value: 'Management members and roles', inline: true }
     );
   } else if (category === 'utility') {
     embed.addFields(
@@ -57,7 +58,7 @@ function buildHelpEmbed(category) {
   } else {
     embed.addFields(
       { name: 'Pros & Teams', value: '`/pros_total` `/list_pros` `/pros_list` `/pro_info` `/teams` `/team_info`', inline: false },
-      { name: 'Merch & Content', value: '`/merch` `/news` `/videos` `/placements` `/games` `/latest` `/top_placements` `/random_pro`', inline: false },
+      { name: 'Merch & Content', value: '`/merch` `/news` `/videos` `/placements` `/games` `/latest` `/top_placements` `/random_pro` `/mgmt_info`', inline: false },
       { name: 'Utility', value: '`/stats` `/advanced_stats` (admin) `/status` `/uptime` `/ping`', inline: false }
     );
   }
