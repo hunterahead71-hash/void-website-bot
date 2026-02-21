@@ -13,12 +13,12 @@ const {
   handleProsTotal,
   handleProsList,
   handleProInfo,
-  handleListPros,
+  // handleListPros removed
   handleOpsInfo,
   prosTotalCommand,
   prosListCommand,
   proInfoCommand,
-  listProsCommand,
+  // listProsCommand removed
   opsInfoCommand
 } = require('./commands/pros');
 const {
@@ -56,7 +56,6 @@ const {
 } = require('./commands/liveCommands');
 const { parsePaginationCustomId } = require('./utils/pagination');
 const {
-  handleListProsPaginated,
   handleProsListPaginated,
   handleOpsInfoPaginated,
   replyWithProDetail,
@@ -95,7 +94,7 @@ async function registerCommands() {
     prosTotalCommand,
     prosListCommand,
     proInfoCommand,
-    listProsCommand,
+    // listProsCommand removed
     opsInfoCommand,
     teamsCommand,
     teamInfoCommand,
@@ -175,7 +174,7 @@ client.on(Events.InteractionCreate, async interaction => {
     try {
       if (id.startsWith('pag:')) {
         const { cmd, page, extra } = parsePaginationCustomId(id);
-        if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
+        // handleListProsPaginated removed
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
         if (cmd === 'merch') return await handleMerchPaginated(interaction, page, extra);
@@ -189,7 +188,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const cmd = parts[0];
         const page = parseInt(parts[1], 10) || 0;
         const extra = (parts[2] || '').replace(/_/g, ' ');
-        if (cmd === 'list_pros') return await handleListProsPaginated(interaction, page, extra);
+        // handleListProsPaginated removed
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
       }
@@ -250,9 +249,7 @@ client.on(Events.InteractionCreate, async interaction => {
       case 'pro_info':
         await handleProInfo(interaction);
         break;
-      case 'list_pros':
-        await handleListPros(interaction);
-        break;
+      // case 'list_pros' removed
       case 'ops_info':
         await handleOpsInfo(interaction);
         break;
@@ -345,4 +342,3 @@ client.login(discordToken).catch(error => {
   console.error('❌ Failed to login:', error);
   process.exit(1);
 });
-
