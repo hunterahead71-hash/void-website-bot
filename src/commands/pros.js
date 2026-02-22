@@ -73,7 +73,7 @@ function isOperations(person, teamName = '') {
   );
 }
 
-const prosTotalCommand = new SlashCommandBuilder()
+const teamsCommand = new SlashCommandBuilder()
   .setName('teams')
   .setDescription('Show Void eSports teams, pros, and operations statistics.');
 
@@ -172,7 +172,7 @@ function buildProEmbed(foundPro, teamName, source, typeLabel = null) {
   return embed;
 }
 
-async function handleProsTotal(interaction) {
+async function handleTeams(interaction) {
   try {
     const db = getFirestoreInstance();
     const { teams, ambassadors } = await getTeamsAndAmbassadors(db);
@@ -348,6 +348,10 @@ async function collectAllOps(db) {
 }
 
 async function handleProsList(interaction, page = 0, extraGame = null) {
+  // Ensure page is a valid number
+  page = parseInt(page) || 0;
+  if (page < 0) page = 0;
+  
   const gameFilter = extraGame !== null ? extraGame : (interaction.options && interaction.options.getString ? interaction.options.getString('game') : 'fortnite');
   
   try {
@@ -360,24 +364,26 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     }
     
     const totalPages = Math.ceil(allPros.length / PER_PAGE);
+    // Ensure page is within bounds
     const p = Math.max(0, Math.min(page, totalPages - 1));
-    const slice = allPros.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
+    const start = p * PER_PAGE;
+    const end = Math.min(start + PER_PAGE, allPros.length);
+    const slice = allPros.slice(start, end);
 
     // Create a beautiful embed
     const embed = new EmbedBuilder()
       .setTitle(gameFilter ? `👥 Fortnite Pros` : '👥 All Pros')
-      .setDescription(`**Total Pros:** ${allPros.length}\n**Showing:** ${slice.length} pros on this page`)
+      .setDescription(`**Total Pros:** ${allPros.length}\n**Showing:** ${start + 1}-${end} of ${allPros.length}`)
       .setColor(0x8a2be2)
-      .setThumbnail('https://cdn.discordapp.com/emojis/1462884163265757294.webp?size=128') // Add your logo
       .setFooter({ 
         text: `Page ${p + 1}/${totalPages} · Select a pro below for full profile`,
         iconURL: interaction.client.user.displayAvatarURL()
       })
       .setTimestamp();
 
-    // Add each pro as a field
+    // Add each pro as a field (3 per row for better layout)
     slice.forEach((pro, index) => {
-      const fieldName = `${index + 1 + (p * PER_PAGE)}. ${pro.name}`;
+      const fieldName = `${start + index + 1}. ${pro.name}`;
       const fieldValue = `**Team:** ${pro.teamName || '—'} • **Role:** ${pro.role || 'Pro Player'}`;
       embed.addFields({ name: fieldName, value: fieldValue, inline: true });
     });
@@ -389,21 +395,23 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     const pagRow = buildPaginationRow('pros_list', p, totalPages, gameFilter || '');
     if (pagRow) components.push(pagRow);
     
-    // Add select menu for profiles
-    const selectOptions = slice.slice(0, 25).map(pro => ({
-      label: (pro.name || 'Unknown').substring(0, 100),
-      value: (pro.name || '').substring(0, 100),
-      description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`.substring(0, 100)
-    }));
-    
-    if (selectOptions.length) {
-      const selectRow = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`pro_sel:pros_list:${p}:${encodeExtra(gameFilter || '')}`)
-          .setPlaceholder('🔍 View full profile...')
-          .addOptions(selectOptions)
-      );
-      components.push(selectRow);
+    // Add select menu for profiles (max 25 options)
+    if (slice.length > 0) {
+      const selectOptions = slice.slice(0, 25).map(pro => ({
+        label: (pro.name || 'Unknown').substring(0, 100),
+        value: (pro.name || '').substring(0, 100),
+        description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`.substring(0, 100)
+      }));
+      
+      if (selectOptions.length) {
+        const selectRow = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`pro_sel:pros_list:${p}:${encodeExtra(gameFilter || '')}`)
+            .setPlaceholder('🔍 View full profile...')
+            .addOptions(selectOptions)
+        );
+        components.push(selectRow);
+      }
     }
     
     const payload = { embeds: [embed], components };
@@ -459,11 +467,19 @@ async function replyWithProDetail(interaction, proName, backPayload) {
     }
     
     const embed = buildProEmbed(result.pro, result.teamName, result.source);
-    const backId = `back:${backPayload.cmd}:${backPayload.page}:${encodeExtra(backPayload.extra || '')}`.slice(0, 100);
+    
+    // Ensure backPayload has valid values
+    const cmd = backPayload.cmd || 'pros_list';
+    const page = parseInt(backPayload.page) || 0;
+    const extra = backPayload.extra || '';
+    
+    const backId = `back:${cmd}:${page}:${encodeExtra(extra)}`;
+    // Truncate if too long
+    const finalBackId = backId.length > 100 ? backId.substring(0, 100) : backId;
     
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(backId)
+        .setCustomId(finalBackId)
         .setLabel('◀ Back to list')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('⬅️')
@@ -499,11 +515,19 @@ async function replyWithOpsDetail(interaction, opName, backPayload) {
     }
     
     const embed = buildProEmbed(result.pro, result.teamName, result.source, 'Operations');
-    const backId = `back:${backPayload.cmd}:${backPayload.page}:${encodeExtra(backPayload.extra || '')}`.slice(0, 100);
+    
+    // Ensure backPayload has valid values
+    const cmd = backPayload.cmd || 'ops_info';
+    const page = parseInt(backPayload.page) || 0;
+    const extra = backPayload.extra || '';
+    
+    const backId = `back:${cmd}:${page}:${encodeExtra(extra)}`;
+    // Truncate if too long
+    const finalBackId = backId.length > 100 ? backId.substring(0, 100) : backId;
     
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(backId)
+        .setCustomId(finalBackId)
         .setLabel('◀ Back to list')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('⬅️')
@@ -525,6 +549,10 @@ async function replyWithOpsDetail(interaction, opName, backPayload) {
 }
 
 async function handleOpsInfo(interaction, page = 0) {
+  // Ensure page is a valid number
+  page = parseInt(page) || 0;
+  if (page < 0) page = 0;
+  
   try {
     const db = getFirestoreInstance();
     const allOps = await collectAllOps(db);
@@ -539,13 +567,14 @@ async function handleOpsInfo(interaction, page = 0) {
     
     const totalPages = Math.ceil(allOps.length / PER_PAGE);
     const p = Math.max(0, Math.min(page, totalPages - 1));
-    const slice = allOps.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
+    const start = p * PER_PAGE;
+    const end = Math.min(start + PER_PAGE, allOps.length);
+    const slice = allOps.slice(start, end);
 
     const embed = new EmbedBuilder()
       .setTitle('👥 Operations & Management')
-      .setDescription(`**Total Members:** ${allOps.length}\n**Showing:** ${slice.length} on this page`)
+      .setDescription(`**Total Members:** ${allOps.length}\n**Showing:** ${start + 1}-${end} of ${allOps.length}`)
       .setColor(0x8a2be2)
-      .setThumbnail('https://cdn.discordapp.com/emojis/1462884163265757294.webp?size=128')
       .setFooter({ 
         text: `Page ${p + 1}/${totalPages} · Select below for full profile`,
         iconURL: interaction.client.user.displayAvatarURL()
@@ -553,7 +582,7 @@ async function handleOpsInfo(interaction, page = 0) {
       .setTimestamp();
 
     slice.forEach((op, index) => {
-      const fieldName = `${index + 1 + (p * PER_PAGE)}. ${op.name}`;
+      const fieldName = `${start + index + 1}. ${op.name}`;
       const fieldValue = `**Team:** ${op.teamName || '—'} • **Role:** ${op.role || '—'}`;
       embed.addFields({ name: fieldName, value: fieldValue, inline: true });
     });
@@ -563,20 +592,22 @@ async function handleOpsInfo(interaction, page = 0) {
     const pagRow = buildPaginationRow('ops_info', p, totalPages, '');
     if (pagRow) components.push(pagRow);
     
-    const selectOptions = slice.slice(0, 25).map(op => ({
-      label: (op.name || 'Unknown').substring(0, 100),
-      value: (op.name || '').substring(0, 100),
-      description: `${op.role || '—'} · ${op.teamName || '—'}`.substring(0, 100)
-    }));
-    
-    if (selectOptions.length) {
-      const selectRow = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`ops_sel:ops_info:${p}:`)
-          .setPlaceholder('🔍 View full profile...')
-          .addOptions(selectOptions)
-      );
-      components.push(selectRow);
+    if (slice.length > 0) {
+      const selectOptions = slice.slice(0, 25).map(op => ({
+        label: (op.name || 'Unknown').substring(0, 100),
+        value: (op.name || '').substring(0, 100),
+        description: `${op.role || '—'} · ${op.teamName || '—'}`.substring(0, 100)
+      }));
+      
+      if (selectOptions.length) {
+        const selectRow = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`ops_sel:ops_info:${p}:`)
+            .setPlaceholder('🔍 View full profile...')
+            .addOptions(selectOptions)
+        );
+        components.push(selectRow);
+      }
     }
     
     const payload = { embeds: [embed], components };
@@ -602,11 +633,11 @@ module.exports = {
   isOperations,
   collectAllPros,
   collectAllOps,
-  prosTotalCommand, // This is now the /teams command
+  teamsCommand, // This is now /teams
   prosListCommand,
   proInfoCommand,
   opsInfoCommand,
-  handleProsTotal, // This handles the /teams command
+  handleTeams, // This handles the /teams command
   handleProsList,
   handleProInfo,
   handleOpsInfo,
