@@ -11,17 +11,15 @@ const { discordToken, discordClientId, discordGuildId } = require('./config');
 
 // Pros Commands (now includes /teams)
 const {
-  handleProsTotal, // This is now /teams
+  handleTeams, // This is now /teams
   handleProsList,
   handleProInfo,
   handleOpsInfo,
-  prosTotalCommand, // This is now /teams
+  teamsCommand, // This is now /teams
   prosListCommand,
   proInfoCommand,
   opsInfoCommand
 } = require('./commands/pros');
-
-// Teams Commands - REMOVED (team_info.js deleted)
 
 // Other Existing Commands
 const { handleMerch, merchCommand } = require('./commands/merch');
@@ -61,11 +59,7 @@ const {
 // Socials Command
 const { 
   socialsCommand, 
-  handleSocials, 
-  handleSocialsPaginated,
-  handleCopyAllLinks,
-  handleCopySingleLink,
-  handleInviteBot 
+  handleSocials
 } = require('./commands/socials');
 
 // Latest Video Command
@@ -127,8 +121,8 @@ server.listen(PORT, () => {
 // Command registration function
 async function registerCommands() {
   const commands = [
-    // Pros Commands (including /teams)
-    prosTotalCommand, // This is now /teams
+    // Teams & Pros Commands
+    teamsCommand, // This is now /teams
     prosListCommand,
     proInfoCommand,
     opsInfoCommand,
@@ -234,8 +228,6 @@ client.on(Events.InteractionCreate, async interaction => {
         if (id === 'help_all') {
           const { handleHelp } = require('./commands/help');
           return await handleHelp(interaction);
-        } else if (id === 'help_support' || id === 'help_invite') {
-          return; // Link buttons handled automatically
         } else {
           const category = id.replace('help_', '');
           return await handleHelpCategory(interaction, category);
@@ -244,56 +236,60 @@ client.on(Events.InteractionCreate, async interaction => {
       
       // Existing pagination buttons
       if (id.startsWith('pag:')) {
-        const { cmd, page, extra } = parsePaginationCustomId(id);
+        const parsed = parsePaginationCustomId(id);
+        if (!parsed) {
+          await interaction.reply({ content: '❌ Invalid button.', ephemeral: true });
+          return;
+        }
+        
+        const { cmd, page, extra } = parsed;
+        
+        // Ensure page is a valid number
+        if (isNaN(page)) {
+          await interaction.reply({ content: '❌ Invalid page number.', ephemeral: true });
+          return;
+        }
+        
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
         if (cmd === 'merch') return await handleMerchPaginated(interaction, page, extra);
         if (cmd === 'news') return await handleNewsPaginated(interaction, page, extra);
         if (cmd === 'placements') return await handlePlacementsPaginated(interaction, page, extra);
         if (cmd === 'videos') return await handleVideosPaginated(interaction, page, extra);
+        
+        // Unknown command
+        await interaction.reply({ content: '❌ Unknown command.', ephemeral: true });
+        return;
       }
       
       // Back buttons
       if (id.startsWith('back:')) {
         const parts = id.slice(5).split(':');
+        if (parts.length < 2) {
+          await interaction.reply({ content: '❌ Invalid back button.', ephemeral: true });
+          return;
+        }
+        
         const cmd = parts[0];
         const page = parseInt(parts[1], 10) || 0;
-        const extra = (parts[2] || '').replace(/_/g, ' ');
+        const extra = parts.length > 2 ? parts.slice(2).join(':').replace(/_/g, ' ') : '';
+        
         if (cmd === 'pros_list') return await handleProsListPaginated(interaction, page, extra);
         if (cmd === 'ops_info') return await handleOpsInfoPaginated(interaction, page);
-      }
-      
-      // Socials pagination
-      if (id.startsWith('socials_prev_') || id.startsWith('socials_next_')) {
-        const direction = id.includes('prev') ? 'prev' : 'next';
-        return await handleSocialsPaginated(interaction, direction);
-      }
-      
-      // Socials copy all links
-      if (id === 'socials_copy_all') {
-        return await handleCopyAllLinks(interaction);
-      }
-      
-      // Socials invite bot
-      if (id === 'socials_invite_bot') {
-        return await handleInviteBot(interaction);
-      }
-      
-      // Socials copy single link
-      if (id.startsWith('socials_copy_')) {
-        const platform = id.replace('socials_copy_', '');
-        return await handleCopySingleLink(interaction, platform);
+        
+        await interaction.reply({ content: '❌ Unknown back button.', ephemeral: true });
+        return;
       }
       
       // Latest video refresh
-      if (id.startsWith('refresh_latest_')) {
+      if (id === 'refresh_latest_youtube') {
         return await handleRefreshLatest(interaction);
       }
       
       // Share button
-      if (id.startsWith('share_')) {
+      if (id === 'share_youtube_latest') {
         await interaction.reply({ 
-          content: '🔗 Share this content with friends!', 
+          content: '🔗 Share this video with friends!', 
           ephemeral: true 
         });
         return;
@@ -302,32 +298,69 @@ client.on(Events.InteractionCreate, async interaction => {
       // Video pagination
       if (id.startsWith('videos_page_')) {
         const parts = id.split('_');
+        if (parts.length < 5) {
+          await interaction.reply({ content: '❌ Invalid video button.', ephemeral: true });
+          return;
+        }
+        
         const page = parseInt(parts[2], 10);
         const limit = parts[3];
         const longformOnly = parts[4];
+        
+        if (isNaN(page)) {
+          await interaction.reply({ content: '❌ Invalid page number.', ephemeral: true });
+          return;
+        }
+        
         return await handleVideosPaginated(interaction, page, limit, longformOnly);
       }
       
-      // Moderation confirmations
+      // Moderation confirmations - let them pass through to be handled by the command functions
       if (id.startsWith('confirm_kick_') || 
           id.startsWith('confirm_ban_') || 
           id.startsWith('confirm_timeout_') || 
           id === 'cancel_mod_action') {
-        return; // Handled in moderation commands
+        return; // These are handled in the moderation command files
       }
       
       // View warnings
       if (id.startsWith('warnings_view_')) {
-        const userId = id.split('_')[2];
+        const parts = id.split('_');
+        if (parts.length < 3) {
+          await interaction.reply({ content: '❌ Invalid warnings button.', ephemeral: true });
+          return;
+        }
+        
+        const userId = parts[2];
         return await handleViewWarnings(interaction, userId);
       }
       
-    } catch (err) {
-      console.error('❌ Button handler error:', err);
+      // If we get here, it's an unhandled button
+      console.log(`Unhandled button: ${id}`);
       await interaction.reply({ 
-        content: '❌ Something went wrong processing that button.', 
+        content: '❌ This button is not working right now.', 
         ephemeral: true 
       }).catch(() => {});
+      
+    } catch (err) {
+      console.error('❌ Button handler error:', err);
+      
+      // Try to reply if possible
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ 
+            content: '❌ Something went wrong processing that button.', 
+            ephemeral: true 
+          });
+        } else {
+          await interaction.followUp({ 
+            content: '❌ Something went wrong.', 
+            ephemeral: true 
+          });
+        }
+      } catch (e) {
+        console.error('Could not send error message:', e);
+      }
     }
     return;
   }
@@ -339,20 +372,36 @@ client.on(Events.InteractionCreate, async interaction => {
     try {
       if (id.startsWith('pro_sel:')) {
         const parts = id.slice(8).split(':');
+        if (parts.length < 3) {
+          await interaction.reply({ content: '❌ Invalid select menu.', ephemeral: true });
+          return;
+        }
+        
         const cmd = parts[0];
         const page = parseInt(parts[1], 10) || 0;
-        const extra = (parts[2] || '').replace(/_/g, ' ');
+        const extra = parts.length > 2 ? parts.slice(2).join(':').replace(/_/g, ' ') : '';
         const proName = interaction.values?.[0];
+        
         if (proName) {
           await replyWithProDetail(interaction, proName, { cmd, page, extra });
+        } else {
+          await interaction.reply({ content: '❌ No pro selected.', ephemeral: true });
         }
       } else if (id.startsWith('ops_sel:')) {
         const parts = id.slice(8).split(':');
+        if (parts.length < 2) {
+          await interaction.reply({ content: '❌ Invalid select menu.', ephemeral: true });
+          return;
+        }
+        
         const cmd = parts[0];
         const page = parseInt(parts[1], 10) || 0;
         const opName = interaction.values?.[0];
+        
         if (opName) {
           await replyWithOpsDetail(interaction, opName, { cmd, page, extra: '' });
+        } else {
+          await interaction.reply({ content: '❌ No member selected.', ephemeral: true });
         }
       }
     } catch (err) {
@@ -375,7 +424,7 @@ client.on(Events.InteractionCreate, async interaction => {
     switch (commandName) {
       // Teams & Pros Commands
       case 'teams': // This is the renamed pros_total
-        await handleProsTotal(interaction);
+        await handleTeams(interaction);
         break;
       case 'pros_list':
         await handleProsList(interaction);
