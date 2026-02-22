@@ -360,7 +360,14 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     
     if (allPros.length === 0) {
       const msg = gameFilter ? `No pros found for **${gameFilter}**.` : 'No pros found.';
-      return interaction.editReply({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
+      
+      // Check if we can update or need to reply
+      if (interaction.isButton?.()) {
+        await interaction.update({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
+      } else {
+        await interaction.editReply({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
+      }
+      return;
     }
     
     const totalPages = Math.ceil(allPros.length / PER_PAGE);
@@ -416,16 +423,34 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     
     const payload = { embeds: [embed], components };
     
+    // Check if this is a button interaction (update) or command (editReply)
     if (interaction.isButton?.()) {
-      await interaction.update(payload).catch(() => {});
+      try {
+        await interaction.update(payload);
+      } catch (updateError) {
+        console.error('Failed to update button interaction:', updateError);
+        // If update fails, try to send a new message
+        try {
+          await interaction.followUp(payload);
+        } catch (followUpError) {
+          console.error('Failed to send followup:', followUpError);
+        }
+      }
     } else {
       await interaction.editReply(payload).catch(() => {});
     }
   } catch (error) {
     console.error('pros_list error:', error);
     const errPayload = { content: '❌ Failed to fetch pros list.', embeds: [], components: [] };
+    
     if (interaction.isButton?.()) {
-      await interaction.update(errPayload).catch(() => {});
+      try {
+        await interaction.update(errPayload);
+      } catch {
+        try {
+          await interaction.followUp(errPayload);
+        } catch {}
+      }
     } else {
       await interaction.editReply(errPayload).catch(() => {});
     }
@@ -558,11 +583,14 @@ async function handleOpsInfo(interaction, page = 0) {
     const allOps = await collectAllOps(db);
     
     if (allOps.length === 0) {
-      return interaction.editReply({ 
-        content: '❌ No operations/management team members found.', 
-        embeds: [], 
-        components: [] 
-      }).catch(() => {});
+      const payload = { content: '❌ No operations/management team members found.', embeds: [], components: [] };
+      
+      if (interaction.isButton?.()) {
+        await interaction.update(payload).catch(() => {});
+      } else {
+        await interaction.editReply(payload).catch(() => {});
+      }
+      return;
     }
     
     const totalPages = Math.ceil(allOps.length / PER_PAGE);
@@ -613,15 +641,31 @@ async function handleOpsInfo(interaction, page = 0) {
     const payload = { embeds: [embed], components };
     
     if (interaction.isButton?.()) {
-      await interaction.update(payload).catch(() => {});
+      try {
+        await interaction.update(payload);
+      } catch (updateError) {
+        console.error('Failed to update button interaction:', updateError);
+        try {
+          await interaction.followUp(payload);
+        } catch (followUpError) {
+          console.error('Failed to send followup:', followUpError);
+        }
+      }
     } else {
       await interaction.editReply(payload).catch(() => {});
     }
   } catch (error) {
     console.error('ops_info error:', error);
     const errPayload = { content: '❌ Failed to fetch ops list.', embeds: [], components: [] };
+    
     if (interaction.isButton?.()) {
-      await interaction.update(errPayload).catch(() => {});
+      try {
+        await interaction.update(errPayload);
+      } catch {
+        try {
+          await interaction.followUp(errPayload);
+        } catch {}
+      }
     } else {
       await interaction.editReply(errPayload).catch(() => {});
     }
@@ -633,11 +677,11 @@ module.exports = {
   isOperations,
   collectAllPros,
   collectAllOps,
-  teamsCommand, // This is now /teams
+  teamsCommand,
   prosListCommand,
   proInfoCommand,
   opsInfoCommand,
-  handleTeams, // This handles the /teams command
+  handleTeams,
   handleProsList,
   handleProInfo,
   handleOpsInfo,
