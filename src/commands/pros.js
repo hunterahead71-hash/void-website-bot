@@ -361,11 +361,20 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     if (allPros.length === 0) {
       const msg = gameFilter ? `No pros found for **${gameFilter}**.` : 'No pros found.';
       
-      // Check if we can update or need to reply
+      const payload = { content: `❌ ${msg}`, embeds: [], components: [] };
+      
       if (interaction.isButton?.()) {
-        await interaction.update({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
+        try {
+          await interaction.update(payload);
+        } catch {
+          try {
+            await interaction.message.edit(payload);
+          } catch {
+            await interaction.followUp(payload);
+          }
+        }
       } else {
-        await interaction.editReply({ content: `❌ ${msg}`, embeds: [], components: [] }).catch(() => {});
+        await interaction.editReply(payload).catch(() => {});
       }
       return;
     }
@@ -402,13 +411,34 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     const pagRow = buildPaginationRow('pros_list', p, totalPages, gameFilter || '');
     if (pagRow) components.push(pagRow);
     
-    // Add select menu for profiles (max 25 options)
+    // Add select menu for profiles (max 25 options) - WITH UNIQUE VALUES
     if (slice.length > 0) {
-      const selectOptions = slice.slice(0, 25).map(pro => ({
-        label: (pro.name || 'Unknown').substring(0, 100),
-        value: (pro.name || '').substring(0, 100),
-        description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`.substring(0, 100)
-      }));
+      // Track used values to ensure uniqueness
+      const usedValues = new Set();
+      const selectOptions = [];
+      
+      for (const pro of slice) {
+        if (selectOptions.length >= 25) break;
+        
+        // Create a unique value using name + team + index
+        let baseValue = (pro.name || 'unknown').substring(0, 50).replace(/[^a-zA-Z0-9]/g, '_');
+        let value = baseValue;
+        let counter = 1;
+        
+        // Ensure value is unique
+        while (usedValues.has(value)) {
+          value = `${baseValue}_${counter}`;
+          counter++;
+        }
+        
+        usedValues.add(value);
+        
+        selectOptions.push({
+          label: (pro.name || 'Unknown').substring(0, 100),
+          value: value,
+          description: `${pro.role || 'Pro'} · ${pro.teamName || '—'}`.substring(0, 100)
+        });
+      }
       
       if (selectOptions.length) {
         const selectRow = new ActionRowBuilder().addComponents(
@@ -426,14 +456,28 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
     // Check if this is a button interaction (update) or command (editReply)
     if (interaction.isButton?.()) {
       try {
+        // Try to update the interaction first
         await interaction.update(payload);
       } catch (updateError) {
-        console.error('Failed to update button interaction:', updateError);
-        // If update fails, try to send a new message
+        console.error('Failed to update button interaction:', updateError.message);
+        
+        // If update fails, try to edit the original message directly
         try {
-          await interaction.followUp(payload);
-        } catch (followUpError) {
-          console.error('Failed to send followup:', followUpError);
+          if (interaction.message) {
+            await interaction.message.edit(payload);
+          } else {
+            // If that fails, send a new message
+            await interaction.followUp(payload);
+          }
+        } catch (editError) {
+          console.error('Failed to edit message:', editError.message);
+          
+          // Last resort: send a new message
+          try {
+            await interaction.followUp(payload);
+          } catch (followUpError) {
+            console.error('Failed to send followup:', followUpError.message);
+          }
         }
       }
     } else {
@@ -448,8 +492,12 @@ async function handleProsList(interaction, page = 0, extraGame = null) {
         await interaction.update(errPayload);
       } catch {
         try {
-          await interaction.followUp(errPayload);
-        } catch {}
+          await interaction.message.edit(errPayload);
+        } catch {
+          try {
+            await interaction.followUp(errPayload);
+          } catch {}
+        }
       }
     } else {
       await interaction.editReply(errPayload).catch(() => {});
@@ -586,7 +634,15 @@ async function handleOpsInfo(interaction, page = 0) {
       const payload = { content: '❌ No operations/management team members found.', embeds: [], components: [] };
       
       if (interaction.isButton?.()) {
-        await interaction.update(payload).catch(() => {});
+        try {
+          await interaction.update(payload);
+        } catch {
+          try {
+            await interaction.message.edit(payload);
+          } catch {
+            await interaction.followUp(payload);
+          }
+        }
       } else {
         await interaction.editReply(payload).catch(() => {});
       }
@@ -620,12 +676,31 @@ async function handleOpsInfo(interaction, page = 0) {
     const pagRow = buildPaginationRow('ops_info', p, totalPages, '');
     if (pagRow) components.push(pagRow);
     
+    // Add select menu with unique values
     if (slice.length > 0) {
-      const selectOptions = slice.slice(0, 25).map(op => ({
-        label: (op.name || 'Unknown').substring(0, 100),
-        value: (op.name || '').substring(0, 100),
-        description: `${op.role || '—'} · ${op.teamName || '—'}`.substring(0, 100)
-      }));
+      const usedValues = new Set();
+      const selectOptions = [];
+      
+      for (const op of slice) {
+        if (selectOptions.length >= 25) break;
+        
+        let baseValue = (op.name || 'unknown').substring(0, 50).replace(/[^a-zA-Z0-9]/g, '_');
+        let value = baseValue;
+        let counter = 1;
+        
+        while (usedValues.has(value)) {
+          value = `${baseValue}_${counter}`;
+          counter++;
+        }
+        
+        usedValues.add(value);
+        
+        selectOptions.push({
+          label: (op.name || 'Unknown').substring(0, 100),
+          value: value,
+          description: `${op.role || '—'} · ${op.teamName || '—'}`.substring(0, 100)
+        });
+      }
       
       if (selectOptions.length) {
         const selectRow = new ActionRowBuilder().addComponents(
@@ -644,11 +719,22 @@ async function handleOpsInfo(interaction, page = 0) {
       try {
         await interaction.update(payload);
       } catch (updateError) {
-        console.error('Failed to update button interaction:', updateError);
+        console.error('Failed to update button interaction:', updateError.message);
+        
         try {
-          await interaction.followUp(payload);
-        } catch (followUpError) {
-          console.error('Failed to send followup:', followUpError);
+          if (interaction.message) {
+            await interaction.message.edit(payload);
+          } else {
+            await interaction.followUp(payload);
+          }
+        } catch (editError) {
+          console.error('Failed to edit message:', editError.message);
+          
+          try {
+            await interaction.followUp(payload);
+          } catch (followUpError) {
+            console.error('Failed to send followup:', followUpError.message);
+          }
         }
       }
     } else {
@@ -663,8 +749,12 @@ async function handleOpsInfo(interaction, page = 0) {
         await interaction.update(errPayload);
       } catch {
         try {
-          await interaction.followUp(errPayload);
-        } catch {}
+          await interaction.message.edit(errPayload);
+        } catch {
+          try {
+            await interaction.followUp(errPayload);
+          } catch {}
+        }
       }
     } else {
       await interaction.editReply(errPayload).catch(() => {});
